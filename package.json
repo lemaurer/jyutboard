@@ -15,8 +15,8 @@
     "test:e2e": "playwright test",
     "check": "npm test && npm run build",
     "pack": "npm run build && electron-builder --dir",
-    "dist:mac": "npm run build && electron-builder --mac",
-    "dist:win": "npm run build && electron-builder --win",
+    "dist:mac": "npm run build && electron-builder --mac --publish never",
+    "dist:win": "npm run build && electron-builder --win --publish never",
     "relay": "node dist-electron/relay.cjs"
   },
   "dependencies": {
