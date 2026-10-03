@@ -1,6 +1,6 @@
 # JyutBoard
 
-A quiet little teaching desk for learning Cantonese together. Natasha writes naturally in Chinese; Leif sees Jyutping first. Shared notes, movable phrase cards, drawings, live pronunciation recordings and a session tray keep the lesson in one place.
+A live teaching canvas for learning Cantonese together. Natasha writes naturally in Chinese; Leif sees Jyutping first. Both views share movable phrase cards, dense phrase tables, notes, drawings, pronunciation recordings, and a session tray.
 
 **[Download for Mac](../../releases/latest)** · Windows installers are available in each GitHub Actions build and in tagged releases.
 
@@ -8,23 +8,25 @@ A quiet little teaching desk for learning Cantonese together. Natasha writes nat
 
 ## Start a lesson
 
-1. Choose **Natasha’s view** or **Leif’s view** on the left. The two views are local to each computer. Chinese leads on Natasha’s screen; Jyutping leads on Leif’s.
+1. Choose **Natasha** or **Leif** in the left panel. The view is local to each computer. Chinese leads on Natasha’s screen; Jyutping leads on Leif’s. Hide either side panel with its button in the top bar whenever you want more canvas.
 2. Type a Chinese phrase or paste one. Jyutping and word meanings appear immediately from the bundled offline dictionary. English translation runs in the background while online translation is enabled.
-3. Select a card to record or attach Natasha’s pronunciation, correct the English, expand each word, or save the phrase to the session tray. Both people see those changes as they happen.
+3. Click a card to edit the phrase and its **Piece by piece** word division, record or attach Natasha’s pronunciation, or save it to the session tray. Natasha can choose a rounded, sheet, or sticky shape and switch the card between **Full**, **Compact**, and **Practice** modes. Practice hides English throughout Leif’s card and details view until Natasha switches it back.
 4. Star useful phrases and send them to JyutDeck’s Natasha approval queue. JyutDeck analyses the original Cantonese and handles its own word breakdown. Audio stays on the lesson card because the request API does not accept recordings.
 
-Cards, short notes, and mouse/stylus drawings share a scrollable, zoomable lesson canvas. Lessons and audio are saved on the device. Export a lesson backup before changing computers; importing makes a separate copy. The learner can click **Say that again** to send Natasha a quick in-room signal.
+Click the table icon to add a compact phrase table. Natasha enters Chinese; Leif sees Jyutping in that column. English is suggested automatically, and translations and notes are editable in each row. Natasha can hide the table’s English column from Leif. Select a row for its word breakdown.
+
+Drag a card or table from its top edge. Select an item and press **Delete** or **Backspace** to remove it; text fields keep their normal editing keys. Pinch the trackpad or hold **Option** while scrolling to zoom in or out around the pointer. Normal two-finger scrolling pans the canvas. The zoom buttons work too. Lessons and audio are saved on the device. Export a lesson backup before changing computers; importing makes a separate copy. The learner can click **Say that again** to send Natasha a quick in-room signal.
 
 ## Live sharing
 
-- **Same Wi-Fi:** open the lesson on the host computer, choose **Share lesson**, and create an invitation. The app hosts a small relay on port **47831** and shows a private `jyutboard://` invite containing the high-entropy room code. Send the invite to the other person. Keep JyutBoard open on the host computer. If the network blocks Wi-Fi device traffic, allow JyutBoard through the local firewall.
-- **Over the internet:** deploy the optional relay below behind a TLS reverse proxy and use its `wss://` address in Share lesson, or connect the computers with a trusted private VPN and use its private `ws://` address. The included relay keeps active lesson data in memory and forgets idle rooms after an hour. It is deliberately small: up to 8 people per room, 20 MB per room and 100 active rooms per relay.
+- **Same Wi-Fi:** open the lesson on the host computer, choose **Share / Sync**, and create an invitation. The app hosts a small relay on port **47831** and shows a private `jyutboard://` invite containing the high-entropy room code. Send the invite to the other person. Keep JyutBoard open on the host computer. If the network blocks Wi-Fi device traffic, allow JyutBoard through the local firewall.
+- **Over the internet:** deploy the optional relay below behind a TLS reverse proxy and use its `wss://` address in Share / Sync, or connect the computers with a trusted private VPN and use its private `ws://` address. The included relay keeps active lesson data in memory and forgets idle rooms after an hour. It is deliberately small: up to 8 people per room, 20 MB per room and 100 active rooms per relay.
 
 Anyone holding the invite can edit the room. The relay operator can read the lesson. Plain `ws://` traffic is unencrypted: use it only on a trusted local network or private VPN. For internet access, use WSS. The app bounds recordings to 2 MB per phrase and rooms to 20 MB.
 
 ## JyutDeck setup
 
-Open **Settings & connections** and enter the one-time `NATASHA_REQUEST_API_TOKEN` made for the existing JyutDeck request API. The app stores it with the computer’s OS encryption; it is sent only from the desktop main process to the HTTPS API. Never place it in an invite, a lesson note, or the repository. Configure the token on each computer from your own secret store. Leave the endpoint set to `https://jyutdeck.vercel.app/api/v1/requests` unless you intentionally run another endpoint.
+Open **Settings** and enter the one-time `NATASHA_REQUEST_API_TOKEN` made for the existing JyutDeck request API. The app stores it with the computer’s OS encryption; it is sent only from the desktop main process to the HTTPS API. Never place it in an invite, a lesson note, or the repository. Configure the token on each computer from your own secret store. Leave the endpoint set to `https://jyutdeck.vercel.app/api/v1/requests` unless you intentionally run another endpoint.
 
 The app sends only Chinese text, a note with the session title, stable retry keys and small source metadata. The API analyses each request and saves it for Natasha to review. Results stay on each card, including duplicates and individual failures; retrying an unchanged phrase is safe. No API token means local lessons continue to work, but queue sending is disabled.
 
@@ -50,7 +52,7 @@ npm run check
 npm run pack
 ```
 
-`npm run pack` opens a packaged, unpacked test build in `release/`.
+`npm run pack` creates a packaged, unpacked test build in `release/`.
 
 On macOS:
 
@@ -68,7 +70,7 @@ npm run check
 npm run dist:win
 ```
 
-The Windows installer and portable build appear in `release/`. GitHub Actions builds Mac and Windows packages separately. Create a version tag such as `v0.1.1` to publish downloadable installers on the GitHub Releases page. CI builds are not code signed. Windows SmartScreen may require **More info → Run anyway**.
+The Windows installer and portable build appear in `release/`. GitHub Actions builds Mac and Windows packages separately. Create a version tag such as `v0.2.0` to publish downloadable installers on the GitHub Releases page. CI builds are not code signed. Windows SmartScreen may require **More info → Run anyway**.
 
 ## Relay on a small Linux host
 
