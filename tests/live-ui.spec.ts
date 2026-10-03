@@ -1,0 +1,18 @@
+import { test,expect } from '@playwright/test';
+import { startRelay } from '../electron/relay-server';
+import { newRoom } from '../src/model';
+import type { BrowserContext, Browser } from '@playwright/test';
+let relay:Awaited<ReturnType<typeof startRelay>>;let contexts:BrowserContext[]=[];
+test.beforeAll(async()=>{relay=await startRelay(0,'127.0.0.1');});
+test.afterEach(async()=>{await Promise.all(contexts.map(c=>c.close()));contexts=[];});
+test.afterAll(async()=>{await relay.close();});
+async function blankPage(browser:Browser){const context=await browser.newContext({viewport:{width:1440,height:960},permissions:['microphone']});contexts.push(context);const page=await context.newPage();await page.goto('/');await expect(page.getByRole('button',{name:'Share lesson'})).toBeVisible();return page;}
+test('learner and teacher receive live Chinese, Jyutping, saved phrases and pronunciation',async({browser})=>{
+ const leif=await blankPage(browser);await leif.getByRole('button',{name:'New lesson'}).click();await leif.getByRole('button',{name:'Share lesson'}).click();await leif.getByLabel('Relay address (optional)').fill(`ws://127.0.0.1:${relay.port}`);await leif.getByRole('button',{name:'Create invitation'}).click();const invite=await leif.getByLabel('Private invitation').inputValue();expect(invite).toContain('jyutboard://join#');await leif.getByRole('button',{name:'Close sharing'}).click();
+ const natasha=await blankPage(browser);await natasha.getByRole('button',{name:'老師 Teacher'}).click();await natasha.getByRole('button',{name:'Share lesson'}).click();await natasha.getByLabel('Lesson invitation').fill(invite);await natasha.getByRole('button',{name:'Join lesson'}).click();
+ await expect(leif.getByText(/2 in lesson/)).toBeVisible();await leif.getByLabel('Cantonese phrase').fill('我想飲水');await leif.getByRole('button',{name:'Add phrase'}).click();const lCard=leif.getByTestId('phrase-card').filter({hasText:'drink water'});await expect(lCard.locator('h2')).toContainText('ngo5');const tCard=natasha.getByTestId('phrase-card').filter({hasText:'drink water'});await expect(tCard.locator('h2')).toContainText('我想飲水');await expect(tCard.locator('h2')).not.toContainText('ngo5');
+ await lCard.getByRole('button',{name:'Save phrase'}).click();await expect(natasha.getByRole('heading',{name:'Session tray'}).locator('..')).toContainText('1');
+ await lCard.getByRole('button',{name:/Explore words/}).click();await expect(leif.getByRole('heading',{name:'Piece by piece'})).toBeVisible();await leif.locator('.inspector input[type=file]').setInputFiles({name:'natasha.webm',mimeType:'audio/webm',buffer:Buffer.from('lesson-test-audio')});await expect(leif.locator('.inspector audio')).toBeVisible();await tCard.click();await expect(natasha.locator('.inspector audio')).toBeVisible();await leif.screenshot({path:'docs/teaching-desk.png'});
+ await natasha.getByRole('button',{name:'老師 Teacher'}).click();await expect(tCard.locator('h2')).not.toContainText('jam2');
+});
+test('lesson backup restores as a separate lesson',async({browser})=>{const page=await blankPage(browser);await page.getByLabel('Cantonese phrase').fill('你好');await page.getByRole('button',{name:'Add phrase'}).click();const downloaded=page.waitForEvent('download');await page.getByRole('button',{name:'Export lesson backup'}).click();const backup=await downloaded;const path=await backup.path();expect(path).toBeTruthy();await page.getByRole('button',{name:'Import lesson backup'}).click();await page.locator('input[type=file][accept=".json"]').setInputFiles(path!);await expect(page.getByTestId('phrase-card')).toHaveCount(1);await expect(page.locator('.session-title')).toHaveText('Our first Cantonese lesson');await expect(page.locator('.history button')).toHaveCount(2);});

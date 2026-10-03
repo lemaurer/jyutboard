@@ -1,0 +1,83 @@
+{
+  "name": "jyutboard",
+  "version": "0.1.0",
+  "description": "A shared Cantonese teaching desk for Natasha and Leif",
+  "author": "Leif Maurer",
+  "license": "MIT",
+  "private": true,
+  "main": "dist-electron/main.cjs",
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "dev:web": "vite --host 127.0.0.1",
+    "build": "tsc --noEmit && vite build && node scripts/build-electron.mjs",
+    "start": "electron .",
+    "test": "tsx --test tests/*.test.ts",
+    "test:e2e": "playwright test",
+    "check": "npm test && npm run build",
+    "pack": "npm run build && electron-builder --dir",
+    "dist:mac": "npm run build && electron-builder --mac",
+    "dist:win": "npm run build && electron-builder --win",
+    "relay": "node dist-electron/relay.cjs"
+  },
+  "dependencies": {
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
+    "to-jyutping": "3.1.1",
+    "yjs": "^13.6.27",
+    "y-indexeddb": "^9.0.12",
+    "ws": "^8.18.3",
+    "lucide-react": "^0.468.0",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "electron": "44.5.1",
+    "electron-builder": "26.15.3",
+    "vite": "^6.4.1",
+    "@vitejs/plugin-react": "^4.7.0",
+    "typescript": "^5.9.3",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "@types/node": "^22.19.0",
+    "@types/ws": "^8.18.1",
+    "tsx": "^4.23.0",
+    "esbuild": "^0.25.12",
+    "@playwright/test": "^1.56.0",
+    "agent-browser": "^0.21.0"
+  },
+  "build": {
+    "appId": "app.jyutdeck.jyutboard",
+    "productName": "JyutBoard",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "dist-electron/**/*",
+      "package.json"
+    ],
+    "asar": true,
+    "mac": {
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "category": "public.app-category.education",
+      "extendInfo": {
+        "NSMicrophoneUsageDescription": "Record Cantonese pronunciation for your shared lessons."
+      }
+    },
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    },
+    "linux": {
+      "target": "AppImage"
+    }
+  }
+}

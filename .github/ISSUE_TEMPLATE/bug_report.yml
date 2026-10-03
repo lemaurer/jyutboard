@@ -1,0 +1,20 @@
+name: Bug report
+description: Report an issue with JyutBoard
+body:
+  - type: markdown
+    attributes:
+      value: Do not include API tokens, private room invites, or lesson recordings.
+  - type: input
+    id: version
+    attributes:
+      label: App version and operating system
+      placeholder: 0.1.0, macOS 15 or Windows 11
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What happened?
+      description: What did you expect to happen, and what happened instead?
+    validations:
+      required: true
