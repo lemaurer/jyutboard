@@ -575,8 +575,8 @@ export default function App() {
         : language === "jyutping"
           ? { jyutping: content }
           : { definition: content, translation: "edited" }),
-      x: location[0],
-      y: location[1],
+      x: clamp(location[0], 0, BOARD_WIDTH - 300),
+      y: clamp(location[1], 0, BOARD_HEIGHT - 300),
     });
     lesson.stopCapturing();
     addCard(doc, card);
@@ -590,8 +590,8 @@ export default function App() {
     if (!doc) return;
     const card = createCard({
       sourceLanguage: teacher ? "chinese" : "jyutping",
-      x: location[0],
-      y: location[1],
+      x: clamp(location[0], 0, BOARD_WIDTH - 300),
+      y: clamp(location[1], 0, BOARD_HEIGHT - 300),
     });
     lesson.stopCapturing();
     addCard(doc, card);
@@ -605,8 +605,8 @@ export default function App() {
       kind: "note",
       definition: "A little note…",
       shape: "sticky",
-      x: location[0],
-      y: location[1],
+      x: clamp(location[0], 0, BOARD_WIDTH - 300),
+      y: clamp(location[1], 0, BOARD_HEIGHT - 300),
     });
     lesson.stopCapturing();
     addCard(doc, card);
@@ -620,8 +620,8 @@ export default function App() {
       kind: "table",
       chinese: "Phrase list",
       rows: [createTableRow()],
-      x: location[0],
-      y: location[1],
+      x: clamp(location[0], 0, BOARD_WIDTH - 650),
+      y: clamp(location[1], 0, BOARD_HEIGHT - 300),
       shape: "sheet",
     });
     lesson.stopCapturing();
@@ -635,8 +635,8 @@ export default function App() {
     const card = createCard({
       kind: "sticker",
       sticker: value,
-      x: location[0],
-      y: location[1],
+      x: clamp(location[0], 0, BOARD_WIDTH - 300),
+      y: clamp(location[1], 0, BOARD_HEIGHT - 300),
     });
     lesson.stopCapturing();
     addCard(doc, card);
@@ -683,7 +683,17 @@ export default function App() {
     }
     if (drag.current && doc) {
       patchCard(doc, drag.current.id, {
-        x: Math.round(clamp(x - drag.current.dx, 0, BOARD_WIDTH - 300)),
+        x: Math.round(
+          clamp(
+            x - drag.current.dx,
+            0,
+            BOARD_WIDTH -
+              (cards.find((card) => card.id === drag.current?.id)?.kind ===
+              "table"
+                ? 650
+                : 300),
+          ),
+        ),
         y: Math.round(clamp(y - drag.current.dy, 0, BOARD_HEIGHT - 300)),
       });
     } else if (path.current) {

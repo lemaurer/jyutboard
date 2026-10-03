@@ -262,6 +262,32 @@ test("centered large canvas, in-place cards, English/Jyutping, stickers and keyb
   await expect(page.getByTestId("sticker-card")).toHaveCount(1);
   await page.keyboard.press("Control+Shift+z");
   await expect(page.getByTestId("sticker-card")).toHaveCount(0);
+  await page.locator(".canvas-viewport").evaluate((node) => {
+    node.scrollLeft = node.scrollWidth;
+    node.scrollTop = node.scrollHeight;
+  });
+  await page
+    .getByRole("button", { name: "Place phrase card on canvas" })
+    .click();
+  await page.locator(".canvas-viewport").evaluate((node) => {
+    const rect = node.getBoundingClientRect();
+    node
+      .querySelector(".canvas")!
+      .dispatchEvent(
+        new PointerEvent("pointerdown", {
+          bubbles: true,
+          clientX: rect.right - 10,
+          clientY: rect.bottom - 10,
+        }),
+      );
+  });
+  await expect(page.getByTestId("phrase-card")).toHaveCount(4);
+  expect(
+    await page
+      .getByTestId("phrase-card")
+      .last()
+      .evaluate((node) => parseInt((node as HTMLElement).style.left)),
+  ).toBeLessThanOrEqual(5300);
 });
 
 test("partners see animal cursors, find each other and follow presenter zoom and camera", async ({
