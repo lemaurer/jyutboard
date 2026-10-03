@@ -163,3 +163,42 @@ test("table rows and independent edits sync without replacing each other", () =>
   a.destroy();
   b.destroy();
 });
+
+test("English and Jyutping cards retain their source language in queue requests", () => {
+  const session = { id: newRoom(), title: "Practice", created: Date.now() };
+  for (const card of [
+    createCard({
+      sourceLanguage: "english",
+      definition: "Would you like tea?",
+      note: "Polite question",
+    }),
+    createCard({ sourceLanguage: "jyutping", jyutping: "nei5 hou2" }),
+  ]) {
+    const request = queuePayload([card], session).requests[0];
+    assert.equal(request.inputLanguage, card.sourceLanguage);
+    assert.equal(
+      request.requestText,
+      card.sourceLanguage === "english" ? card.definition : card.jyutping,
+    );
+    assert.equal(request.chinese, undefined);
+  }
+});
+test("undo changes local edits while preserving a remote edit on the same card", () => {
+  const doc = new Y.Doc(),
+    peer = new Y.Doc();
+  const card = createCard({ chinese: "你好" });
+  addCard(doc, card);
+  Y.applyUpdate(peer, Y.encodeStateAsUpdate(doc));
+  const manager = new Y.UndoManager(doc.getMap("cards"));
+  patchCard(doc, card.id, { x: 500 });
+  patchCard(peer, card.id, { note: "Natasha’s hint" });
+  Y.applyUpdate(doc, Y.encodeStateAsUpdate(peer), "remote");
+  manager.undo();
+  assert.equal(readCards(doc)[0].x, card.x);
+  assert.equal(readCards(doc)[0].note, "Natasha’s hint");
+  manager.redo();
+  assert.equal(readCards(doc)[0].x, 500);
+  manager.destroy();
+  doc.destroy();
+  peer.destroy();
+});

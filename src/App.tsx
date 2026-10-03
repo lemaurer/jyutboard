@@ -8,6 +8,9 @@ import {
   Copy,
   Download,
   Grip,
+  Globe,
+  Highlighter,
+  LocateFixed,
   Minus,
   MousePointer2,
   PanelLeft,
@@ -15,6 +18,7 @@ import {
   Pencil,
   Plus,
   Radio,
+  Redo2,
   Send,
   Settings as SettingsIcon,
   Star,
@@ -25,6 +29,9 @@ import {
   Upload,
   Users,
   Volume2,
+  Expand,
+  Eye,
+  EyeOff,
   X,
 } from "lucide-react";
 import {
@@ -48,6 +55,7 @@ import {
   type CardShape,
   type Role,
   type Session,
+  type SourceLanguage,
   type Stroke,
   type TableRow,
   type Word,
@@ -57,10 +65,35 @@ import { loadPreference, preference, remember, sessions } from "./storage";
 import { useLesson } from "./useLesson";
 import { AudioRecorder } from "./AudioRecorder";
 import { Settings } from "./Settings";
+import { WordBreakdown } from "./WordBreakdown";
 
-type Tool = "select" | "draw" | "arrow";
-const BOARD_WIDTH = 3200;
-const BOARD_HEIGHT = 2200;
+type Tool =
+  | "select"
+  | "draw"
+  | "highlight"
+  | "arrow"
+  | "phrase"
+  | "note"
+  | "table"
+  | "sticker";
+const BOARD_WIDTH = 5600;
+const BOARD_HEIGHT = 3600;
+const CENTER_X = BOARD_WIDTH / 2;
+const CENTER_Y = BOARD_HEIGHT / 2;
+const STICKERS = [
+  "⭐",
+  "💡",
+  "❓",
+  "❤️",
+  "👏",
+  "🍜",
+  "☕",
+  "🎯",
+  "✨",
+  "🦝",
+  "🐻",
+  "🎉",
+];
 const clamp = (value: number, low: number, high: number) =>
   Math.min(high, Math.max(low, value));
 const errorText = (error: unknown) =>
@@ -77,11 +110,7 @@ function initialSession() {
   return first;
 }
 function englishHidden(card: Card, teacher: boolean) {
-  return (
-    !teacher &&
-    (card.mode === "practice" ||
-      (card.kind === "table" && card.hideEnglishForLearner))
-  );
+  return !teacher && (card.mode === "practice" || card.hideEnglishForLearner);
 }
 
 export default function App() {
@@ -99,6 +128,7 @@ export default function App() {
   const [rightOpen, setRightOpen] = useState(
     loadPreference("rightOpen", "true") === "true",
   );
+  const [temporaryRight, setTemporaryRight] = useState(false);
   const lesson = useLesson(session, role);
   const { doc, cards, strokes, peers, status, saved } = lesson;
   const [selected, setSelected] = useState<string | null>(null);
@@ -113,6 +143,17 @@ export default function App() {
   const [sharingBusy, setSharingBusy] = useState(false);
   const [notice, setNotice] = useState("");
   const [tool, setTool] = useState<Tool>("select");
+  const [sticker, setSticker] = useState("⭐");
+  const [sourceLanguage, setSourceLanguage] =
+    useState<SourceLanguage>("chinese");
+  const [expandedCards, setExpandedCards] = useState<Set<string>>(new Set());
+  const [followPeerId, setFollowPeerId] = useState<string | null>(null);
+  const [autoFollowing, setAutoFollowing] = useState(false);
+  const [dismissedPresenter, setDismissedPresenter] = useState<string | null>(
+    null,
+  );
+  const [presenting, setPresenting] = useState(false);
+  const [highlightedPeer, setHighlightedPeer] = useState<string | null>(null);
   const [zoom, setZoom] = useState(1);
   const zoomRef = useRef(1);
   const [pending, setPending] = useState<Stroke | null>(null);
@@ -124,6 +165,13 @@ export default function App() {
   const drag = useRef<{ id: string; dx: number; dy: number } | null>(null);
   const path = useRef<Stroke | null>(null);
   const lastPresence = useRef(0);
+  const lastViewPresence = useRef(0);
+  const viewPresenceTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
+    undefined,
+  );
+  const lastAttention = useRef<Record<string, number>>({});
+  const ownCursor = useRef<[number, number] | null>(null);
+  const centeredSession = useRef<string | null>(null);
   const translationRequests = useRef(new Map<string, number>());
   const toastTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
     undefined,
@@ -133,6 +181,7 @@ export default function App() {
   const teacher = role === "teacher";
   const stars = cards.filter((card) => card.starred && card.kind === "phrase");
   const hidden = active ? englishHidden(active, teacher) : false;
+  const effectiveRightOpen = rightOpen || temporaryRight;
 
   function notify(message: string) {
     setNotice(message);
@@ -152,10 +201,94 @@ export default function App() {
   }, [rightOpen]);
   useEffect(() => {
     zoomRef.current = zoom;
+    publishView();
   }, [zoom]);
+  useEffect(() => {
+    if (!doc || centeredSession.current === session.id) return;
+    centeredSession.current = session.id;
+    const node = viewport.current;
+    if (!node) return;
+    const targetX = cards.length
+      ? cards.reduce((sum, card) => sum + card.x, 0) / cards.length
+      : CENTER_X;
+    const targetY = cards.length
+      ? cards.reduce((sum, card) => sum + card.y, 0) / cards.length
+      : CENTER_Y;
+    requestAnimationFrame(() => centerView(targetX, targetY));
+  }, [doc, session.id, cards]);
+  useEffect(() => {
+    const node = viewport.current;
+    if (!node) return;
+    const onScroll = () => publishView();
+    node.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      node.removeEventListener("scroll", onScroll);
+      clearTimeout(viewPresenceTimer.current);
+    };
+  }, [doc, session.id, role]);
+  useEffect(() => {
+    lesson.presence({ presenting: teacher && presenting });
+  }, [presenting, role, doc]);
+  useEffect(() => {
+    const presenter = peers.find(
+      (peer) => peer.role === "teacher" && peer.presenting,
+    );
+    if (!presenter) {
+      setDismissedPresenter(null);
+      if (autoFollowing) {
+        setFollowPeerId(null);
+        setAutoFollowing(false);
+      }
+    } else if (
+      !teacher &&
+      presenter.id !== dismissedPresenter &&
+      !followPeerId
+    ) {
+      setFollowPeerId(presenter.id);
+      setAutoFollowing(true);
+    }
+  }, [peers, role, dismissedPresenter, followPeerId, autoFollowing]);
+  useEffect(() => {
+    const peer = peers.find((item) => item.id === followPeerId);
+    if (followPeerId && !peer) {
+      setFollowPeerId(null);
+      setAutoFollowing(false);
+      return;
+    }
+    if (!peer?.view) return;
+    const node = viewport.current;
+    if (!node) return;
+    if (Math.abs(zoomRef.current - peer.view.zoom) > 0.002) {
+      zoomRef.current = peer.view.zoom;
+      setZoom(peer.view.zoom);
+    }
+    const left = peer.view.x * peer.view.zoom - node.clientWidth / 2;
+    const top = peer.view.y * peer.view.zoom - node.clientHeight / 2;
+    const frame = requestAnimationFrame(() => {
+      if (Math.abs(node.scrollLeft - left) > 2) node.scrollLeft = left;
+      if (Math.abs(node.scrollTop - top) > 2) node.scrollTop = top;
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [peers, followPeerId]);
+  useEffect(() => {
+    for (const peer of peers) {
+      if (
+        !peer.attentionAt ||
+        Date.now() - peer.attentionAt > 10000 ||
+        peer.attentionAt <= (lastAttention.current[peer.id] ?? 0)
+      )
+        continue;
+      lastAttention.current[peer.id] = peer.attentionAt;
+      jumpToPeer(peer);
+      notify(
+        `${peer.role === "teacher" ? "Natasha" : "Leif"} called you to their cursor.`,
+      );
+    }
+  }, [peers]);
   useEffect(() => {
     if (selected && !cards.some((card) => card.id === selected)) {
       setSelected(null);
+      setTemporaryRight(false);
       setSelectedRow(null);
     }
     if (
@@ -193,10 +326,32 @@ export default function App() {
   }, []);
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
+      if (
+        (event.metaKey || event.ctrlKey) &&
+        event.key.toLowerCase() === "z" &&
+        !settings &&
+        !sharing
+      ) {
+        event.preventDefault();
+        if (event.shiftKey) lesson.redo();
+        else lesson.undo();
+        return;
+      }
+      if (
+        (event.metaKey || event.ctrlKey) &&
+        event.key.toLowerCase() === "y" &&
+        !settings &&
+        !sharing
+      ) {
+        event.preventDefault();
+        lesson.redo();
+        return;
+      }
       if (event.key !== "Delete" && event.key !== "Backspace") return;
       if (settings || sharing || !doc) return;
       const target = event.target as HTMLElement | null;
       if (target?.closest('input, textarea, [contenteditable="true"]')) return;
+      lesson.stopCapturing();
       if (selectedStroke) {
         doc.getMap("strokes").delete(selectedStroke);
         setSelectedStroke(null);
@@ -207,9 +362,10 @@ export default function App() {
         event.preventDefault();
       } else if (selected) {
         doc.getMap("cards").delete(selected);
-        setSelected(null);
+        clearSelection();
         event.preventDefault();
       }
+      lesson.stopCapturing();
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
@@ -219,12 +375,13 @@ export default function App() {
     setSelected(cardId);
     setSelectedRow(rowId);
     setSelectedStroke(null);
-    setRightOpen(true);
+    if (!rightOpen) setTemporaryRight(true);
   }
   function clearSelection() {
     setSelected(null);
     setSelectedRow(null);
     setSelectedStroke(null);
+    setTemporaryRight(false);
   }
   function switchSession(value: Session) {
     setSession(value);
@@ -232,13 +389,18 @@ export default function App() {
     clearSelection();
     setInvite("");
     setInput("");
-    viewport.current?.scrollTo(0, 0);
+    centeredSession.current = null;
+    setFollowPeerId(null);
+    setPresenting(false);
   }
   function updateSession(value: Session) {
     setSession(value);
     setHistory(remember(value));
   }
-  function point(event: PointerEvent): [number, number] {
+  function point(event: {
+    clientX: number;
+    clientY: number;
+  }): [number, number] {
     const rect = board.current!.getBoundingClientRect();
     return [
       clamp(
@@ -252,6 +414,63 @@ export default function App() {
         BOARD_HEIGHT - 100,
       ),
     ];
+  }
+  function centerView(x: number, y: number, scale = zoomRef.current) {
+    const node = viewport.current;
+    if (!node) return;
+    node.scrollLeft = clamp(
+      x * scale - node.clientWidth / 2,
+      0,
+      BOARD_WIDTH * scale - node.clientWidth,
+    );
+    node.scrollTop = clamp(
+      y * scale - node.clientHeight / 2,
+      0,
+      BOARD_HEIGHT * scale - node.clientHeight,
+    );
+  }
+  function viewCenter(): [number, number] {
+    const node = viewport.current;
+    if (!node) return [CENTER_X, CENTER_Y];
+    return [
+      (node.scrollLeft + node.clientWidth / 2) / zoomRef.current,
+      (node.scrollTop + node.clientHeight / 2) / zoomRef.current,
+    ];
+  }
+  function publishView() {
+    const node = viewport.current;
+    if (!node || !doc) return;
+    const elapsed = Date.now() - lastViewPresence.current;
+    clearTimeout(viewPresenceTimer.current);
+    if (elapsed < 35) {
+      viewPresenceTimer.current = setTimeout(publishView, 35 - elapsed);
+      return;
+    }
+    lastViewPresence.current = Date.now();
+    const [x, y] = viewCenter();
+    lesson.presence({ view: { x, y, zoom: zoomRef.current } });
+  }
+  function jumpToPeer(peer: (typeof peers)[number]) {
+    const x = peer.x ?? peer.view?.x;
+    const y = peer.y ?? peer.view?.y;
+    if (x === undefined || y === undefined) return;
+    centerView(x, y);
+    setHighlightedPeer(peer.id);
+    setTimeout(
+      () =>
+        setHighlightedPeer((current) => (current === peer.id ? null : current)),
+      3000,
+    );
+  }
+  function callPartnerHere() {
+    const [x, y] = ownCursor.current ?? viewCenter();
+    lesson.presence({ x, y, attentionAt: Date.now(), signal: "Look here" });
+    notify("Called your partner to this spot.");
+  }
+  function stopFollowing() {
+    if (autoFollowing && followPeerId) setDismissedPresenter(followPeerId);
+    setFollowPeerId(null);
+    setAutoFollowing(false);
   }
   async function enrichPhrase(document: Y.Doc, card: Card) {
     if (!online || !card.chinese.trim()) return;
@@ -267,16 +486,27 @@ export default function App() {
         current?.get("chinese") === card.chinese &&
         current?.get("translation") !== "edited"
       )
-        patchCard(document, card.id, { definition, translation: "translated" });
+        document.transact(
+          () =>
+            patchCard(document, card.id, {
+              definition,
+              translation: "translated",
+            }),
+          "translation",
+        );
     } catch {
       const current = document.getMap<Y.Map<unknown>>("cards").get(card.id);
       if (
         current?.get("chinese") === card.chinese &&
         current.get("translation") !== "edited"
       )
-        patchCard(document, card.id, {
-          translation: "offline · word meanings",
-        });
+        document.transact(
+          () =>
+            patchCard(document, card.id, {
+              translation: "offline · word meanings",
+            }),
+          "translation",
+        );
     }
   }
   async function enrichRow(document: Y.Doc, cardId: string, row: TableRow) {
@@ -294,66 +524,123 @@ export default function App() {
         current?.chinese === row.chinese &&
         current.translation !== "edited"
       )
-        patchTableRow(document, cardId, row.id, {
-          definition,
-          translation: "translated",
-        });
+        document.transact(
+          () =>
+            patchTableRow(document, cardId, row.id, {
+              definition,
+              translation: "translated",
+            }),
+          "translation",
+        );
     } catch {
       const current = getTableRow(document, cardId, row.id);
       if (current?.chinese === row.chinese && current.translation !== "edited")
-        patchTableRow(document, cardId, row.id, {
-          translation: "offline · word meanings",
-        });
+        document.transact(
+          () =>
+            patchTableRow(document, cardId, row.id, {
+              translation: "offline · word meanings",
+            }),
+          "translation",
+        );
     }
   }
-  function addPhrase(text = input) {
+  function newCardPosition(): [number, number] {
+    const [x, y] = viewCenter();
+    return [
+      clamp(x - 140 + (cards.length % 3) * 28, 0, BOARD_WIDTH - 350),
+      clamp(y - 70 + (cards.length % 3) * 28, 0, BOARD_HEIGHT - 300),
+    ];
+  }
+  function addPhrase(
+    text = input,
+    location = newCardPosition(),
+    language = sourceLanguage,
+  ) {
     if (!doc || !text.trim()) return;
     if (text.length > 2000) {
       notify("Keep each phrase under 2,000 characters.");
       return;
     }
-    if (!/\p{Script=Han}/u.test(text)) {
+    if (language === "chinese" && !/\p{Script=Han}/u.test(text)) {
       notify(
-        "Type Cantonese characters for a phrase, or use a note for English.",
+        "Choose Jyutping or English above the input, or type Chinese characters.",
       );
       return;
     }
+    const content = text.trim();
     const card = createCard({
-      chinese: text.trim(),
-      ...analyzeLocal(text.trim()),
-      x: 80 + (cards.length % 3) * 350,
-      y: 100 + (Math.floor(cards.length / 3) % 6) * 270,
+      sourceLanguage: language,
+      ...(language === "chinese"
+        ? { chinese: content, ...analyzeLocal(content) }
+        : language === "jyutping"
+          ? { jyutping: content }
+          : { definition: content, translation: "edited" }),
+      x: location[0],
+      y: location[1],
     });
+    lesson.stopCapturing();
     addCard(doc, card);
+    lesson.stopCapturing();
     selectCard(card.id);
     setInput("");
     lesson.presence({ draft: "" });
-    void enrichPhrase(doc, card);
+    if (language === "chinese") void enrichPhrase(doc, card);
   }
-  function addNote() {
+  function addBlankPhrase(location = newCardPosition()) {
+    if (!doc) return;
+    const card = createCard({
+      sourceLanguage: teacher ? "chinese" : "jyutping",
+      x: location[0],
+      y: location[1],
+    });
+    lesson.stopCapturing();
+    addCard(doc, card);
+    lesson.stopCapturing();
+    selectCard(card.id);
+    setTool("select");
+  }
+  function addNote(location = newCardPosition()) {
     if (!doc) return;
     const card = createCard({
       kind: "note",
       definition: "A little note…",
       shape: "sticky",
-      x: 120 + (cards.length % 3) * 350,
-      y: 120 + (Math.floor(cards.length / 3) % 6) * 270,
+      x: location[0],
+      y: location[1],
     });
+    lesson.stopCapturing();
     addCard(doc, card);
+    lesson.stopCapturing();
     selectCard(card.id);
     setTool("select");
   }
-  function addTable() {
+  function addTable(location = newCardPosition()) {
     if (!doc) return;
     const card = createCard({
       kind: "table",
       chinese: "Phrase list",
       rows: [createTableRow()],
-      x: 100 + (cards.length % 2) * 400,
-      y: 120 + (Math.floor(cards.length / 2) % 5) * 320,
+      x: location[0],
+      y: location[1],
       shape: "sheet",
     });
+    lesson.stopCapturing();
     addCard(doc, card);
+    lesson.stopCapturing();
+    selectCard(card.id);
+    setTool("select");
+  }
+  function addSticker(location = newCardPosition(), value = sticker) {
+    if (!doc) return;
+    const card = createCard({
+      kind: "sticker",
+      sticker: value,
+      x: location[0],
+      y: location[1],
+    });
+    lesson.stopCapturing();
+    addCard(doc, card);
+    lesson.stopCapturing();
     selectCard(card.id);
     setTool("select");
   }
@@ -369,8 +656,8 @@ export default function App() {
         createCard({
           chinese: text,
           ...analyzeLocal(text),
-          x: 85 + index * 355,
-          y: 110 + (index % 2) * 65,
+          x: CENTER_X - 360 + index * 275,
+          y: CENTER_Y - 190 + (index % 2) * 65,
           starred: index === 0,
         }),
       );
@@ -382,21 +669,22 @@ export default function App() {
         definition:
           "A little Cantonese, together.\n\nTry a phrase you would actually say today. ☕",
         shape: "sticky",
-        x: 140,
-        y: 460,
+        x: CENTER_X - 320,
+        y: CENTER_Y + 130,
       }),
     );
   }
   function pointerMove(event: PointerEvent) {
     const [x, y] = point(event);
-    if (Date.now() - lastPresence.current > 55) {
+    ownCursor.current = [x, y];
+    if (Date.now() - lastPresence.current > 32) {
       lesson.presence({ x, y });
       lastPresence.current = Date.now();
     }
     if (drag.current && doc) {
       patchCard(doc, drag.current.id, {
-        x: Math.round(clamp(x - drag.current.dx, 0, 2800)),
-        y: Math.round(clamp(y - drag.current.dy, 0, 1800)),
+        x: Math.round(clamp(x - drag.current.dx, 0, BOARD_WIDTH - 300)),
+        y: Math.round(clamp(y - drag.current.dy, 0, BOARD_HEIGHT - 300)),
       });
     } else if (path.current) {
       const stroke = path.current;
@@ -406,12 +694,14 @@ export default function App() {
     }
   }
   function endPointer() {
+    if (drag.current) lesson.stopCapturing();
     drag.current = null;
     if (path.current && doc) {
       if (path.current.points.length > 1)
         doc.getMap<Stroke>("strokes").set(path.current.id, path.current);
       path.current = null;
       setPending(null);
+      lesson.stopCapturing();
     }
   }
   function startDrag(event: PointerEvent<HTMLElement>, card: Card) {
@@ -422,6 +712,7 @@ export default function App() {
       )
     )
       return;
+    lesson.stopCapturing();
     selectCard(card.id);
     const [x, y] = point(event);
     drag.current = { id: card.id, dx: x - card.x, dy: y - card.y };
@@ -436,15 +727,6 @@ export default function App() {
     if (activeRow)
       patchTableRow(doc, active.id, activeRow.id, { words, jyutping });
     else patchCard(doc, active.id, { words, jyutping });
-  }
-  function editWord(index: number, field: keyof Word, value: string) {
-    const words = activeRow?.words ?? active?.words;
-    if (!words) return;
-    updateWords(
-      words.map((word, position) =>
-        position === index ? { ...word, [field]: value } : word,
-      ),
-    );
   }
   function changeChinese(value: string) {
     if (!doc || !active) return;
@@ -505,6 +787,23 @@ export default function App() {
       setSharingBusy(false);
     }
   }
+  async function hostRemote() {
+    if (!window.desktop) {
+      notify("Open the desktop app to start a remote lesson.");
+      return;
+    }
+    setSharingBusy(true);
+    try {
+      const result = await window.desktop.hostRemote();
+      updateSession({ ...session, relay: result.url });
+      setInvite(inviteFor(session.id, result.url));
+      notify("Remote lesson ready. Copy the invitation for your partner.");
+    } catch (error) {
+      notify(errorText(error));
+    } finally {
+      setSharingBusy(false);
+    }
+  }
   function joinRoom() {
     try {
       const parsed = parseInvite(join);
@@ -527,6 +826,18 @@ export default function App() {
   }
   async function sendToQueue(items: Card[]) {
     if (!items.length) return;
+    if (
+      items.some(
+        (card) =>
+          !card.chinese.trim() &&
+          !(card.sourceLanguage === "jyutping"
+            ? card.jyutping.trim()
+            : card.definition.trim()),
+      )
+    ) {
+      notify("Fill in each saved phrase before sending it.");
+      return;
+    }
     if (!window.desktop) {
       notify("Use the desktop app to send phrases to JyutDeck.");
       return;
@@ -647,6 +958,7 @@ export default function App() {
   }
   function removeSelected() {
     if (!doc) return;
+    lesson.stopCapturing();
     if (selectedStroke) {
       doc.getMap("strokes").delete(selectedStroke);
       setSelectedStroke(null);
@@ -657,11 +969,11 @@ export default function App() {
       doc.getMap("cards").delete(selected);
       clearSelection();
     }
+    lesson.stopCapturing();
   }
 
   const wordOwner = activeRow ?? active;
   const wordList = wordOwner?.words ?? [];
-  const primary = activeRow ?? active;
   return (
     <div className="app">
       {leftOpen && (
@@ -795,11 +1107,66 @@ export default function App() {
             <button className="share-button" onClick={() => setSharing(true)}>
               <Users size={15} /> Share / Sync
             </button>
+            {peers.map((peer) => (
+              <button
+                key={peer.id}
+                className="partner-button"
+                title={`Find ${peer.role === "teacher" ? "Natasha" : "Leif"} on the canvas`}
+                onClick={() => jumpToPeer(peer)}
+              >
+                <span>{peer.role === "teacher" ? "🐻" : "🦝"}</span>
+                {peer.role === "teacher" ? "Natasha" : "Leif"}
+                <LocateFixed size={13} />
+              </button>
+            ))}
+            {peers.length > 0 && (
+              <button
+                className="partner-button"
+                onClick={callPartnerHere}
+                title="Bring your partner to this spot"
+              >
+                <LocateFixed size={14} /> Look here
+              </button>
+            )}
+            {!followPeerId && peers.length > 0 && (
+              <button
+                className="partner-button"
+                onClick={() => {
+                  setFollowPeerId(peers[0].id);
+                  setAutoFollowing(false);
+                }}
+              >
+                <Eye size={14} /> Follow
+              </button>
+            )}
+            {teacher && peers.length > 0 && (
+              <button
+                className={
+                  presenting ? "partner-button presenting" : "partner-button"
+                }
+                title="Show Leif exactly where you are looking"
+                onClick={() => {
+                  setPresenting((value) => !value);
+                  setFollowPeerId(null);
+                  setAutoFollowing(false);
+                }}
+              >
+                {presenting ? <EyeOff size={14} /> : <Eye size={14} />}{" "}
+                {presenting ? "Stop guiding" : "Guide Leif"}
+              </button>
+            )}
             <button
-              className={rightOpen ? "icon-button active" : "icon-button"}
-              aria-label={rightOpen ? "Hide details" : "Show details"}
-              title={rightOpen ? "Hide details" : "Show details"}
-              onClick={() => setRightOpen((value) => !value)}
+              className={
+                effectiveRightOpen ? "icon-button active" : "icon-button"
+              }
+              aria-label={effectiveRightOpen ? "Hide details" : "Show details"}
+              title={effectiveRightOpen ? "Hide details" : "Show details"}
+              onClick={() => {
+                if (temporaryRight) {
+                  setTemporaryRight(false);
+                  setRightOpen(false);
+                } else setRightOpen((value) => !value);
+              }}
             >
               <PanelRight size={18} />
             </button>
@@ -826,6 +1193,14 @@ export default function App() {
                   <Pencil size={17} />
                 </button>
                 <button
+                  title="Highlight"
+                  aria-label="Highlight"
+                  className={tool === "highlight" ? "active" : ""}
+                  onClick={() => setTool("highlight")}
+                >
+                  <Highlighter size={17} />
+                </button>
+                <button
                   title="Draw arrow"
                   aria-label="Draw arrow"
                   className={tool === "arrow" ? "active" : ""}
@@ -835,18 +1210,35 @@ export default function App() {
                 </button>
                 <span className="top-divider" />
                 <button
-                  title="Add note"
-                  aria-label="Add note"
-                  onClick={addNote}
+                  title="Place phrase card on canvas"
+                  aria-label="Place phrase card on canvas"
+                  className={tool === "phrase" ? "active" : ""}
+                  onClick={() => setTool("phrase")}
+                >
+                  <Plus size={17} />
+                </button>
+                <button
+                  title="Place note on canvas"
+                  aria-label="Place note on canvas"
+                  className={tool === "note" ? "active" : ""}
+                  onClick={() => setTool("note")}
                 >
                   <StickyNote size={17} />
                 </button>
                 <button
                   title="Add phrase table"
                   aria-label="Add phrase table"
-                  onClick={addTable}
+                  onClick={() => addTable()}
                 >
                   <Table2 size={17} />
+                </button>
+                <button
+                  title="Place sticker on canvas"
+                  aria-label="Place sticker on canvas"
+                  className={tool === "sticker" ? "active" : ""}
+                  onClick={() => setTool("sticker")}
+                >
+                  ⭐
                 </button>
               </div>
               <div className="tool-group">
@@ -854,17 +1246,48 @@ export default function App() {
                   {teacher ? "Natasha · 中文" : "Leif · Jyutping"}
                 </span>
                 <button
-                  title="Undo last drawing"
-                  aria-label="Undo last drawing"
-                  disabled={!strokes.length}
-                  onClick={() =>
-                    doc?.getMap("strokes").delete(strokes.at(-1)!.id)
-                  }
+                  title="Undo (⌘Z)"
+                  aria-label="Undo"
+                  disabled={!lesson.canUndo}
+                  onClick={lesson.undo}
                 >
                   <Undo2 size={16} />
                 </button>
+                <button
+                  title="Redo (⇧⌘Z)"
+                  aria-label="Redo"
+                  disabled={!lesson.canRedo}
+                  onClick={lesson.redo}
+                >
+                  <Redo2 size={16} />
+                </button>
               </div>
             </div>
+            {tool === "sticker" && (
+              <div className="sticker-palette">
+                <span>Pick a sticker, then click the canvas</span>
+                {STICKERS.map((value) => (
+                  <button
+                    key={value}
+                    className={sticker === value ? "active" : ""}
+                    aria-label={`Sticker ${value}`}
+                    onClick={() => setSticker(value)}
+                  >
+                    {value}
+                  </button>
+                ))}
+              </div>
+            )}
+            {followPeerId && (
+              <div className="follow-banner">
+                <Eye size={15} /> Following{" "}
+                {peers.find((peer) => peer.id === followPeerId)?.role ===
+                "teacher"
+                  ? "Natasha"
+                  : "Leif"}
+                ’s view <button onClick={stopFollowing}>Stop following</button>
+              </div>
+            )}
             <div className="canvas-viewport" ref={viewport}>
               <div
                 style={{
@@ -882,17 +1305,47 @@ export default function App() {
                   onPointerDown={(event) => {
                     if (event.target !== event.currentTarget) return;
                     clearSelection();
-                    if (tool !== "select") {
-                      const location = point(event);
+                    const location = point(event);
+                    if (tool === "phrase") {
+                      addBlankPhrase(location);
+                      return;
+                    }
+                    if (tool === "note") {
+                      addNote(location);
+                      return;
+                    }
+                    if (tool === "table") {
+                      addTable(location);
+                      return;
+                    }
+                    if (tool === "sticker") {
+                      addSticker(location);
+                      return;
+                    }
+                    if (
+                      tool === "draw" ||
+                      tool === "arrow" ||
+                      tool === "highlight"
+                    ) {
+                      lesson.stopCapturing();
                       path.current = {
                         id: crypto.randomUUID(),
                         points: [location],
-                        color: "#3159e8",
+                        color: tool === "highlight" ? "#ffd453" : "#3159e8",
                         arrow: tool === "arrow",
+                        width: tool === "highlight" ? 20 : 3,
+                        opacity: tool === "highlight" ? 0.46 : 1,
                       };
                       setPending(path.current);
                       event.currentTarget.setPointerCapture(event.pointerId);
                     }
+                  }}
+                  onDoubleClick={(event) => {
+                    if (
+                      event.target === event.currentTarget &&
+                      tool === "select"
+                    )
+                      addBlankPhrase(point(event));
                   }}
                 >
                   <svg
@@ -926,7 +1379,8 @@ export default function App() {
                             .join(" ")}
                           fill="none"
                           stroke={stroke.color}
-                          strokeWidth={3}
+                          strokeWidth={stroke.width ?? 3}
+                          opacity={stroke.opacity ?? 1}
                           strokeLinecap="round"
                           strokeLinejoin="round"
                           markerEnd={
@@ -938,7 +1392,7 @@ export default function App() {
                               setSelectedStroke(stroke.id);
                               setSelected(null);
                               setSelectedRow(null);
-                              setRightOpen(true);
+                              if (!rightOpen) setTemporaryRight(true);
                             }
                           }}
                         />
@@ -1111,10 +1565,22 @@ export default function App() {
                           </span>
                         </div>
                       </article>
+                    ) : card.kind === "sticker" ? (
+                      <article
+                        key={card.id}
+                        data-testid="sticker-card"
+                        className={`board-card sticker-card ${selected === card.id ? "selected" : ""}`}
+                        style={{ left: card.x, top: card.y }}
+                        onClick={() => selectCard(card.id)}
+                        onPointerDown={(event) => startDrag(event, card)}
+                      >
+                        <span>{card.sticker}</span>
+                      </article>
                     ) : (
                       <article
                         key={card.id}
                         data-testid="phrase-card"
+                        tabIndex={0}
                         className={`board-card phrase-card shape-${card.shape} mode-${card.mode} ${card.kind === "note" ? "note-card" : ""} ${selected === card.id ? "selected" : ""}`}
                         style={{ left: card.x, top: card.y }}
                         onClick={() => selectCard(card.id)}
@@ -1138,7 +1604,9 @@ export default function App() {
                           <span>
                             {card.kind === "note"
                               ? "NOTE"
-                              : `PHRASE ${String(index + 1).padStart(2, "0")}`}
+                              : card.words.length === 1
+                                ? "WORD"
+                                : "PHRASE"}
                           </span>
                           <span className="handle-spacer" />
                           {card.kind === "phrase" && (
@@ -1173,27 +1641,89 @@ export default function App() {
                           <>
                             <h2
                               className={
-                                teacher ? "card-chinese" : "card-jyutping"
+                                teacher || card.mode === "characters"
+                                  ? "card-chinese"
+                                  : "card-jyutping"
                               }
                             >
-                              {teacher
-                                ? card.chinese
-                                : card.jyutping || card.chinese}
+                              {card.mode === "characters"
+                                ? card.chinese ||
+                                  card.jyutping ||
+                                  card.definition
+                                : teacher
+                                  ? card.chinese ||
+                                    card.jyutping ||
+                                    card.definition ||
+                                    "Write Chinese…"
+                                  : card.jyutping ||
+                                    (englishHidden(card, teacher)
+                                      ? "Add Jyutping…"
+                                      : card.definition ||
+                                        card.chinese ||
+                                        "Add Jyutping…")}
                             </h2>
                             {!englishHidden(card, teacher) &&
-                              card.mode !== "compact" && (
+                              !["peek", "characters"].includes(card.mode) &&
+                              Boolean(card.chinese || card.jyutping) &&
+                              Boolean(card.definition) && (
                                 <p className="card-english">
-                                  {card.definition || "Finding the meaning…"}
+                                  {card.definition}
                                 </p>
                               )}
-                            {!teacher && card.mode === "full" && (
-                              <p className="card-secondary">{card.chinese}</p>
+                            {["peek", "characters"].includes(card.mode) &&
+                              !englishHidden(card, teacher) && (
+                                <div
+                                  className="hover-translation"
+                                  role="tooltip"
+                                >
+                                  {card.mode === "characters" && (
+                                    <strong>{card.jyutping}</strong>
+                                  )}
+                                  {card.definition ||
+                                    "Add a meaning in the details panel."}
+                                </div>
+                              )}
+                            {card.mode === "practice" && !teacher && (
+                              <div className="practice-mask">
+                                <EyeOff size={13} /> Meaning hidden by Natasha
+                              </div>
                             )}
+                            {(card.mode === "breakdown" ||
+                              expandedCards.has(card.id)) &&
+                              card.words.length > 0 && (
+                                <div className="card-word-chips">
+                                  {card.words.map((word, wordIndex) => (
+                                    <span
+                                      key={`${word.chinese}-${wordIndex}`}
+                                      className={`state-${word.state ?? "new"}`}
+                                      title={`${word.state ?? "new"} vocabulary`}
+                                    >
+                                      {teacher
+                                        ? word.chinese
+                                        : word.jyutping || word.chinese}
+                                    </span>
+                                  ))}
+                                </div>
+                              )}
+                            {(card.mode === "full" ||
+                              expandedCards.has(card.id)) &&
+                              Boolean(card.note) && (
+                                <p className="card-note">{card.note}</p>
+                              )}
+                            {expandedCards.has(card.id) &&
+                              !teacher &&
+                              card.chinese && (
+                                <p className="card-secondary">{card.chinese}</p>
+                              )}
                             <div className="card-footer">
                               <span>
-                                {card.mode === "practice" && !teacher
-                                  ? "Practice · meaning hidden"
-                                  : `${card.words.length} pieces`}
+                                {card.mode === "breakdown"
+                                  ? "Vocabulary"
+                                  : card.mode === "practice"
+                                    ? "Practice"
+                                    : card.mode === "compact"
+                                      ? "Compact"
+                                      : ""}
                               </span>
                               {card.audio && (
                                 <button
@@ -1211,6 +1741,29 @@ export default function App() {
                                   <Volume2 size={16} />
                                 </button>
                               )}
+                              <button
+                                aria-label={
+                                  expandedCards.has(card.id)
+                                    ? "Collapse card"
+                                    : "Expand card"
+                                }
+                                title={
+                                  expandedCards.has(card.id)
+                                    ? "Collapse card"
+                                    : "Show more"
+                                }
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  setExpandedCards((current) => {
+                                    const next = new Set(current);
+                                    if (next.has(card.id)) next.delete(card.id);
+                                    else next.add(card.id);
+                                    return next;
+                                  });
+                                }}
+                              >
+                                <Expand size={14} />
+                              </button>
                             </div>
                           </>
                         )}
@@ -1225,11 +1778,13 @@ export default function App() {
                     )
                     .map((peer) => (
                       <div
-                        className={`remote-cursor ${peer.role}`}
+                        className={`remote-cursor ${peer.role} ${highlightedPeer === peer.id ? "highlighted" : ""}`}
                         style={{ left: peer.x, top: peer.y }}
                         key={peer.id}
                       >
-                        <MousePointer2 size={19} fill="currentColor" />
+                        <strong aria-hidden="true">
+                          {peer.role === "teacher" ? "🐻" : "🦝"}
+                        </strong>
                         <span>
                           {peer.role === "teacher" ? "Natasha" : "Leif"}
                         </span>
@@ -1283,11 +1838,20 @@ export default function App() {
               }}
             >
               <div className="composer-label">
-                <span>
-                  {teacher
-                    ? "TYPE A CANTONESE PHRASE"
-                    : "ADD A CANTONESE PHRASE"}
-                </span>
+                <label className="input-language">
+                  Write in{" "}
+                  <select
+                    aria-label="Input language"
+                    value={sourceLanguage}
+                    onChange={(event) =>
+                      setSourceLanguage(event.target.value as SourceLanguage)
+                    }
+                  >
+                    <option value="chinese">中文 · Chinese</option>
+                    <option value="jyutping">Jyutping</option>
+                    <option value="english">English</option>
+                  </select>
+                </label>
                 <button type="button" onClick={() => signal("Say that again?")}>
                   ↻ Say that again
                 </button>
@@ -1296,7 +1860,11 @@ export default function App() {
                 <textarea
                   aria-label="Cantonese phrase"
                   placeholder={
-                    teacher ? "我想食呢個。" : "Type or paste Chinese here…"
+                    sourceLanguage === "chinese"
+                      ? "我想食呢個。"
+                      : sourceLanguage === "jyutping"
+                        ? "ngo5 soeng2 sik6…"
+                        : "What would you like to say?"
                   }
                   value={input}
                   maxLength={2000}
@@ -1325,7 +1893,7 @@ export default function App() {
               </div>
             </form>
           </section>
-          {rightOpen && (
+          {effectiveRightOpen && (
             <aside className="inspector">
               {selectedStroke ? (
                 <div className="inspector-block">
@@ -1441,6 +2009,20 @@ export default function App() {
                         </div>
                       )}
                     </>
+                  ) : active.kind === "sticker" ? (
+                    <div className="sticker-picker">
+                      {STICKERS.map((value) => (
+                        <button
+                          key={value}
+                          aria-label={`Change sticker to ${value}`}
+                          onClick={() =>
+                            doc && patchCard(doc, active.id, { sticker: value })
+                          }
+                        >
+                          {value}
+                        </button>
+                      ))}
+                    </div>
                   ) : active.kind === "note" ? (
                     <label>
                       Your note
@@ -1459,7 +2041,12 @@ export default function App() {
                   ) : (
                     <>
                       <p className="detail-primary">
-                        {teacher ? active.chinese : active.jyutping}
+                        {teacher
+                          ? active.chinese ||
+                            active.jyutping ||
+                            active.definition
+                          : active.jyutping ||
+                            (hidden ? "" : active.definition)}
                       </p>
                       {!hidden && (
                         <p className="detail-english">{active.definition}</p>
@@ -1507,6 +2094,21 @@ export default function App() {
                           }
                         />
                       </label>
+                      <label>
+                        Card note
+                        <textarea
+                          aria-label="Card note"
+                          value={active.note}
+                          maxLength={4000}
+                          placeholder="A hint, example, or reminder…"
+                          onChange={(event) =>
+                            doc &&
+                            patchCard(doc, active.id, {
+                              note: event.target.value,
+                            })
+                          }
+                        />
+                      </label>
                     </>
                   )}
                   {active.kind === "phrase" && teacher && (
@@ -1523,8 +2125,15 @@ export default function App() {
                             [
                               "compact",
                               "Compact",
-                              "Pronunciation only on card",
+                              "Small pronunciation + meaning",
                             ],
+                            ["peek", "Hover", "Only text; hover for meaning"],
+                            [
+                              "characters",
+                              "Characters",
+                              "Chinese only; hover for reading",
+                            ],
+                            ["breakdown", "Vocabulary", "Coloured word pieces"],
                             ["practice", "Practice", "Hide English from Leif"],
                           ] as [CardMode, string, string][]
                         ).map(([mode, label, hint]) => (
@@ -1541,6 +2150,19 @@ export default function App() {
                           </button>
                         ))}
                       </div>
+                      <label className="check">
+                        <input
+                          type="checkbox"
+                          checked={active.hideEnglishForLearner}
+                          onChange={(event) =>
+                            doc &&
+                            patchCard(doc, active.id, {
+                              hideEnglishForLearner: event.target.checked,
+                            })
+                          }
+                        />{" "}
+                        Hide English from Leif
+                      </label>
                       <div className="option-label">Shape</div>
                       <div className="shape-choices">
                         {(
@@ -1565,88 +2187,13 @@ export default function App() {
                   )}
                   {(active.kind === "phrase" ||
                     (active.kind === "table" && activeRow)) && (
-                    <div className="breakdown">
-                      <div className="section-head">
-                        <h3>Piece by piece</h3>
-                        <span>{wordList.length} words</span>
-                      </div>
-                      <p className="small-copy">
-                        Edit where each word begins and ends, its Jyutping, and
-                        its meaning.
-                      </p>
-                      <div className="word-list">
-                        {wordList.map((word, index) => (
-                          <div
-                            className="word-editor"
-                            key={`${active.id}:${activeRow?.id ?? ""}:${index}`}
-                          >
-                            <span className="word-index">{index + 1}</span>
-                            <div className="word-fields">
-                              <input
-                                aria-label={`Piece ${index + 1} Chinese`}
-                                placeholder="中文"
-                                value={word.chinese}
-                                onChange={(event) =>
-                                  editWord(index, "chinese", event.target.value)
-                                }
-                              />
-                              <input
-                                aria-label={`Piece ${index + 1} Jyutping`}
-                                placeholder="Jyutping"
-                                value={word.jyutping}
-                                onChange={(event) =>
-                                  editWord(
-                                    index,
-                                    "jyutping",
-                                    event.target.value,
-                                  )
-                                }
-                              />
-                              {!hidden && (
-                                <input
-                                  aria-label={`Piece ${index + 1} meaning`}
-                                  placeholder="Meaning"
-                                  value={word.definition}
-                                  onChange={(event) =>
-                                    editWord(
-                                      index,
-                                      "definition",
-                                      event.target.value,
-                                    )
-                                  }
-                                />
-                              )}
-                            </div>
-                            <button
-                              aria-label={`Remove piece ${index + 1}`}
-                              title="Remove piece"
-                              onClick={() =>
-                                updateWords(
-                                  wordList.filter(
-                                    (_, position) => position !== index,
-                                  ),
-                                )
-                              }
-                            >
-                              <X size={13} />
-                            </button>
-                          </div>
-                        ))}
-                      </div>
-                      <div className="breakdown-actions">
-                        <button
-                          onClick={() =>
-                            updateWords([
-                              ...wordList,
-                              { chinese: "", jyutping: "", definition: "" },
-                            ])
-                          }
-                        >
-                          <Plus size={13} /> Add piece
-                        </button>
-                        <button onClick={resetWords}>Auto split again</button>
-                      </div>
-                    </div>
+                    <WordBreakdown
+                      words={wordList}
+                      teacher={teacher}
+                      hidden={hidden}
+                      onChange={updateWords}
+                      onAuto={resetWords}
+                    />
                   )}
                   {active.kind === "phrase" && (
                     <>
@@ -1664,7 +2211,14 @@ export default function App() {
                       </div>
                       <button
                         className="send-single"
-                        disabled={sending}
+                        disabled={
+                          sending ||
+                          !(
+                            active.chinese ||
+                            active.jyutping ||
+                            active.definition
+                          )
+                        }
                         onClick={() => void sendToQueue([active])}
                       >
                         <Send size={14} /> Send phrase to JyutDeck
@@ -1805,12 +2359,24 @@ export default function App() {
               <div>
                 <h3>Invite Natasha or Leif</h3>
                 <p>
-                  On the same Wi-Fi, leave the relay blank and host from this
-                  Mac. Keep the host app open. For remote lessons, enter your
-                  WSS relay or VPN address.
+                  Choose Internet lesson for different Wi-Fi networks. Send the
+                  private invitation and keep the host app open. Your partner
+                  pastes it below and joins.
                 </p>
               </div>
             </div>
+            <button
+              className="primary internet-share"
+              disabled={sharingBusy || !window.desktop}
+              onClick={() => void hostRemote()}
+            >
+              <Globe size={16} />
+              {sharingBusy ? "Connecting…" : "Start internet lesson"}
+            </button>
+            <p className="small-copy">
+              No account or network setup. This beta uses a temporary Cloudflare
+              connection; start a new invitation if the host app restarts.
+            </p>
             <label>
               Relay address (optional)
               <input

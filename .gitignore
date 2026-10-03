@@ -2,6 +2,7 @@ node_modules/
 dist/
 dist-electron/
 release/
+.vendor/
 .env*
 !.env.example
 playwright-report/

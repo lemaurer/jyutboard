@@ -1,7 +1,12 @@
 import * as Y from "yjs";
 import { z } from "zod";
 export type Role = "teacher" | "learner";
-export type Word = { chinese: string; jyutping: string; definition: string };
+export type Word = {
+  chinese: string;
+  jyutping: string;
+  definition: string;
+  state?: "new" | "learning" | "known";
+};
 export type TableRow = {
   id: string;
   chinese: string;
@@ -11,11 +16,18 @@ export type TableRow = {
   words: Word[];
   translation: string;
 };
-export type CardMode = "full" | "compact" | "practice";
+export type CardMode =
+  | "full"
+  | "compact"
+  | "peek"
+  | "characters"
+  | "breakdown"
+  | "practice";
 export type CardShape = "rounded" | "sheet" | "sticky";
+export type SourceLanguage = "chinese" | "jyutping" | "english";
 export type Card = {
   id: string;
-  kind: "phrase" | "note" | "table";
+  kind: "phrase" | "note" | "table" | "sticker";
   chinese: string;
   jyutping: string;
   definition: string;
@@ -29,6 +41,9 @@ export type Card = {
   shape: CardShape;
   rows: TableRow[];
   hideEnglishForLearner: boolean;
+  sourceLanguage: SourceLanguage;
+  note: string;
+  sticker: string;
   audio?: string;
   audioName?: string;
   receipt?: string;
@@ -38,6 +53,8 @@ export type Stroke = {
   points: [number, number][];
   color: string;
   arrow: boolean;
+  width?: number;
+  opacity?: number;
 };
 export type Session = {
   id: string;
@@ -52,6 +69,9 @@ export type Presence = {
   y?: number;
   draft?: string;
   signal?: string;
+  attentionAt?: number;
+  presenting?: boolean;
+  view?: { x: number; y: number; zoom: number };
   at: number;
 };
 export const ROOM_PATTERN = /^[a-f0-9]{48}$/;
@@ -78,6 +98,9 @@ export function createCard(fields: Partial<Card> = {}): Card {
     shape: "rounded",
     rows: [],
     hideEnglishForLearner: false,
+    sourceLanguage: "chinese",
+    note: "",
+    sticker: "⭐",
     ...fields,
   };
 }
@@ -170,6 +193,7 @@ const wordSchema = z.object({
   chinese: z.string().max(2000),
   jyutping: z.string().max(2000),
   definition: z.string().max(4000),
+  state: z.enum(["new", "learning", "known"]).optional(),
 });
 export const tableRowSchema = z.object({
   id: z.string().max(100),
@@ -182,20 +206,25 @@ export const tableRowSchema = z.object({
 });
 export const cardSchema = z.object({
   id: z.string().max(100),
-  kind: z.enum(["phrase", "note", "table"]),
+  kind: z.enum(["phrase", "note", "table", "sticker"]),
   chinese: z.string().max(2000),
   jyutping: z.string().max(4000),
   definition: z.string().max(4000),
   words: z.array(wordSchema).max(2000),
-  x: z.number().min(0).max(2800),
-  y: z.number().min(0).max(1800),
+  x: z.number().min(0).max(5300),
+  y: z.number().min(0).max(3300),
   starred: z.boolean(),
   created: z.number(),
   translation: z.string().max(200),
-  mode: z.enum(["full", "compact", "practice"]).default("full"),
+  mode: z
+    .enum(["full", "compact", "peek", "characters", "breakdown", "practice"])
+    .default("full"),
   shape: z.enum(["rounded", "sheet", "sticky"]).default("rounded"),
   rows: z.array(tableRowSchema).max(500).default([]),
   hideEnglishForLearner: z.boolean().default(false),
+  sourceLanguage: z.enum(["chinese", "jyutping", "english"]).default("chinese"),
+  note: z.string().max(4000).default(""),
+  sticker: z.string().max(16).default("⭐"),
   audio: z
     .string()
     .max(2_800_000)
@@ -248,9 +277,20 @@ export function queuePayload(cards: Card[], session: Session) {
   // Let JyutDeck perform its canonical analysis. Its API cannot ingest audio.
   return {
     requests: cards.map((card) => ({
-      chinese: card.chinese,
-      inputLanguage: "chinese",
-      note: `From JyutBoard: ${session.title}`,
+      ...(card.chinese.trim() ? { chinese: card.chinese.trim() } : {}),
+      ...(card.sourceLanguage !== "chinese"
+        ? {
+            requestText:
+              card.sourceLanguage === "jyutping"
+                ? card.jyutping.trim()
+                : card.definition.trim(),
+          }
+        : {}),
+      inputLanguage: card.sourceLanguage,
+      note: `From JyutBoard: ${session.title}${card.note ? ` — ${card.note}` : ""}`.slice(
+        0,
+        4000,
+      ),
       metadata: {
         source: "jyutboard",
         sessionId: session.id,
@@ -258,7 +298,10 @@ export function queuePayload(cards: Card[], session: Session) {
         hasLessonRecording: Boolean(card.audio),
       },
       idempotencyKey:
-        `jyutboard:${session.id}:${card.id}:${card.chinese}`.slice(0, 200),
+        `jyutboard:${session.id}:${card.id}:${card.chinese || card.jyutping || card.definition}`.slice(
+          0,
+          200,
+        ),
     })),
   };
 }

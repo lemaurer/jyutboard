@@ -1,6 +1,6 @@
 {
   "name": "jyutboard",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "A shared Cantonese teaching desk for Natasha and Leif",
   "author": "Leif Maurer",
   "license": "MIT",
@@ -14,10 +14,12 @@
     "test": "tsx --test tests/*.test.ts",
     "test:e2e": "playwright test",
     "check": "npm test && npm run build",
-    "pack": "npm run build && electron-builder --dir",
-    "dist:mac": "npm run build && electron-builder --mac --publish never",
-    "dist:win": "npm run build && electron-builder --win --publish never",
-    "relay": "node dist-electron/relay.cjs"
+    "pack": "npm run build && node scripts/fetch-cloudflared.mjs && electron-builder --dir",
+    "dist:mac": "npm run build && node scripts/fetch-cloudflared.mjs && electron-builder --mac --publish never",
+    "dist:win": "npm run build && node scripts/fetch-cloudflared.mjs && electron-builder --win --publish never",
+    "relay": "node dist-electron/relay.cjs",
+    "prepare:remote": "node scripts/fetch-cloudflared.mjs",
+    "test:remote": "npm run prepare:remote && tsx scripts/test-remote.ts"
   },
   "dependencies": {
     "react": "^19.2.4",
@@ -54,6 +56,15 @@
       "dist/**/*",
       "dist-electron/**/*",
       "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": ".vendor/cloudflared",
+        "to": "cloudflared",
+        "filter": [
+          "**/*"
+        ]
+      }
     ],
     "asar": true,
     "mac": {
