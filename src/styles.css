@@ -377,7 +377,6 @@ small {
   cursor: pointer;
 }
 .drawings polyline.selected-stroke {
-  stroke-width: 6;
   filter: drop-shadow(0 0 3px #3159e8);
 }
 .welcome {
@@ -1664,4 +1663,329 @@ small {
   .topbar-right {
     gap: 3px;
   }
+}
+/* Plain writing, illustrated objects and lightweight canvas tools. */
+.mode-characters,
+.mode-peek {
+  background: transparent !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
+  border-radius: 0;
+  min-width: 0;
+  max-width: 1400px;
+}
+.mode-characters h2,
+.mode-peek h2 {
+  padding: 0;
+  font-weight: 500;
+}
+.mode-characters .card-footer,
+.mode-peek .card-footer {
+  display: none !important;
+}
+.mode-characters.selected,
+.mode-peek.selected {
+  outline: 1px dashed #3159e875;
+  outline-offset: 5px;
+}
+.phrase-card h2 {
+  font-size: calc(19px * var(--text-scale, 1));
+}
+.phrase-card h2.card-chinese {
+  font-size: calc(24px * var(--text-scale, 1));
+}
+.mode-characters h2.card-chinese {
+  font-size: calc(27px * var(--text-scale, 1));
+}
+.card-english,
+.card-note {
+  font-size: calc(12px * var(--text-scale, 1));
+}
+.note-text {
+  font-size: calc(16px * var(--text-scale, 1));
+}
+.phrase-table {
+  font-size: calc(12px * var(--text-scale, 1));
+}
+.board-card {
+  overflow: visible;
+}
+.note-card.shape-rounded {
+  border-radius: 12px;
+}
+.note-card.shape-sheet {
+  border-radius: 3px;
+}
+.resize-handle {
+  position: absolute;
+  bottom: -5px;
+  right: -5px;
+  width: 10px;
+  height: 10px;
+  border: 1px solid #3159e8;
+  background: white;
+  border-radius: 2px;
+  cursor: nwse-resize;
+  z-index: 12;
+  padding: 0;
+  pointer-events: auto;
+}
+.sticker-card {
+  width: 118px;
+  height: 118px;
+  min-height: 0;
+  border: 0;
+  box-shadow: none;
+  background: transparent;
+  pointer-events: none;
+  display: block;
+}
+.sticker-card.selected {
+  border: 0;
+  box-shadow: none;
+}
+.sticker-art {
+  width: 100%;
+  height: 100%;
+  display: block;
+  overflow: visible;
+  pointer-events: none;
+}
+.sticker-card .sticker-ink > * {
+  pointer-events: visiblePainted;
+  cursor: grab;
+}
+.sticker-card .sticker-silhouette {
+  filter: drop-shadow(0 2px 2px #14213e12);
+}
+.sticker-card .resize-handle {
+  pointer-events: auto;
+}
+.tool-group > button > .sticker-art {
+  width: 19px;
+  height: 19px;
+}
+.sticker-popover {
+  position: absolute;
+  left: 12px;
+  top: 48px;
+  width: 340px;
+  max-height: 480px;
+  overflow: auto;
+  border: 1px solid #e2e7f1;
+  background: #fff;
+  border-radius: 12px;
+  padding: 12px;
+  box-shadow: 0 12px 36px #1a2e5626;
+  z-index: 40;
+}
+.canvas-column {
+  position: relative;
+}
+.sticker-popover > .section-head {
+  display: flex;
+  align-items: center;
+  margin-bottom: 10px;
+  font-size: 11px;
+  color: #75849b;
+}
+.sticker-library > input {
+  width: 100%;
+  font-size: 11px;
+  padding: 8px;
+  border: 1px solid #e1e6f0;
+  border-radius: 7px;
+}
+.sticker-categories {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  margin: 8px 0;
+}
+.sticker-categories button {
+  padding: 4px 6px;
+  font-size: 9px;
+  border-radius: 5px;
+  color: #8190a4;
+}
+.sticker-categories button.active {
+  background: #ecf1ff;
+  color: #3159e8;
+}
+.sticker-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 7px;
+}
+.sticker-grid button {
+  display: grid;
+  place-items: center;
+  gap: 4px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  padding: 5px;
+}
+.sticker-grid button.active,
+.sticker-grid button:hover {
+  border-color: #b4c4fc;
+  background: #f4f7ff;
+}
+.sticker-grid .sticker-art {
+  width: 52px;
+  height: 52px;
+}
+.sticker-grid button span {
+  font-size: 9px;
+  color: #75839a;
+}
+.drawing-options {
+  padding: 6px 15px;
+  background: #fff;
+  border-bottom: 1px solid #edf0f6;
+}
+.drawing-controls {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.ink-colors {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.ink-colors button {
+  width: 17px;
+  height: 17px;
+  padding: 0;
+  border-radius: 50%;
+  border: 2px solid transparent;
+}
+.ink-colors button[aria-pressed="true"] {
+  outline: 1px solid #6986bd;
+  outline-offset: 2px;
+  border-color: white;
+}
+.ink-colors input {
+  width: 23px !important;
+  height: 23px;
+  padding: 0 !important;
+  border: 0 !important;
+  background: none;
+}
+.drawing-controls > label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 10px;
+  color: #8491a4;
+  margin: 0;
+}
+.drawing-controls input[type="range"] {
+  width: 95px;
+  padding: 0;
+}
+.drawing-controls > label > span {
+  width: 20px;
+}
+.inspector .drawing-controls {
+  display: grid;
+  gap: 14px;
+  padding: 12px 0;
+}
+.inspector .drawing-controls label {
+  display: flex;
+}
+.inspector input[type="range"] {
+  padding: 0;
+  accent-color: #3159e8;
+}
+.tool-hint {
+  padding: 7px 14px;
+  font-size: 11px;
+  color: #6d7d96;
+  background: #f6f8fd;
+  border-bottom: 1px solid #edf0f6;
+}
+.tool-hint button {
+  color: #3159e8;
+  margin-left: 8px;
+}
+.connecting {
+  cursor: crosshair;
+}
+.selection-marquee {
+  position: absolute;
+  border: 1px solid #3159e8;
+  background: #3159e815;
+  z-index: 30;
+  pointer-events: none;
+}
+.element-actions {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  margin: 8px 0 12px;
+  flex-wrap: wrap;
+}
+.element-actions button,
+.group-scale button {
+  padding: 5px 7px;
+  border: 1px solid #e1e7f0;
+  border-radius: 6px;
+  font-size: 10px;
+  color: #657790;
+  background: #fff;
+}
+.element-actions button:hover,
+.element-actions button.active {
+  background: #eff3ff;
+  color: #3159e8;
+}
+.size-options {
+  margin: 10px 0 15px;
+  border: 1px solid #e4e9f2;
+  border-radius: 7px;
+  padding: 8px;
+}
+.size-options summary {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  cursor: pointer;
+  font-size: 10px;
+  color: #75859b;
+}
+.size-options[open] summary {
+  margin-bottom: 10px;
+}
+.size-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.size-options small {
+  font-size: 9px;
+  color: #a2adbd;
+}
+.size-options label,
+.group-editor label {
+  font-size: 10px;
+}
+.inspector select {
+  width: 100%;
+  border: 1px solid #dfe5f0;
+  border-radius: 6px;
+  padding: 7px;
+  color: #526b8a;
+  background: white;
+  font-size: 11px;
+}
+.group-scale {
+  display: flex;
+  gap: 7px;
+  margin: 14px 0;
+}
+.tool-erase {
+  cursor: crosshair;
 }

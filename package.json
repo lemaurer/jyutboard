@@ -1,6 +1,6 @@
 {
   "name": "jyutboard",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "A shared Cantonese teaching desk for Natasha and Leif",
   "author": "Leif Maurer",
   "license": "MIT",
@@ -75,13 +75,15 @@
       "category": "public.app-category.education",
       "extendInfo": {
         "NSMicrophoneUsageDescription": "Record Cantonese pronunciation for your shared lessons."
-      }
+      },
+      "icon": "build/icon.icns"
     },
     "win": {
       "target": [
         "nsis",
         "portable"
-      ]
+      ],
+      "icon": "build/icon.png"
     },
     "nsis": {
       "oneClick": false,

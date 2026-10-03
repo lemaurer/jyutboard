@@ -1,4 +1,11 @@
-import { useEffect, useRef, useState, type PointerEvent } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type PointerEvent,
+} from "react";
 import * as Y from "yjs";
 import {
   ArrowRight,
@@ -8,6 +15,10 @@ import {
   Copy,
   Download,
   Grip,
+  Eraser,
+  Link2,
+  CopyPlus,
+  Scaling,
   Globe,
   Highlighter,
   LocateFixed,
@@ -38,6 +49,9 @@ import {
   addCard,
   addTableRow,
   cardSchema,
+  strokeSchema,
+  connectorSchema,
+  type Connector,
   createCard,
   createTableRow,
   deleteTableRow,
@@ -65,9 +79,20 @@ import { loadPreference, preference, remember, sessions } from "./storage";
 import { useLesson } from "./useLesson";
 import { AudioRecorder } from "./AudioRecorder";
 import { Settings } from "./Settings";
+import { StickerArt, StickerLibrary } from "./Stickers";
+import { DrawingLayer } from "./DrawingLayer";
+import { DrawingControls } from "./DrawingControls";
+import {
+  intersects,
+  pointsBox,
+  connectorPoints,
+  nearStroke,
+  type Box,
+} from "./canvasGeometry";
 import { WordBreakdown } from "./WordBreakdown";
 
 type Tool =
+  | "erase"
   | "select"
   | "draw"
   | "highlight"
@@ -80,20 +105,6 @@ const BOARD_WIDTH = 5600;
 const BOARD_HEIGHT = 3600;
 const CENTER_X = BOARD_WIDTH / 2;
 const CENTER_Y = BOARD_HEIGHT / 2;
-const STICKERS = [
-  "⭐",
-  "💡",
-  "❓",
-  "❤️",
-  "👏",
-  "🍜",
-  "☕",
-  "🎯",
-  "✨",
-  "🦝",
-  "🐻",
-  "🎉",
-];
 const clamp = (value: number, low: number, high: number) =>
   Math.min(high, Math.max(low, value));
 const errorText = (error: unknown) =>
@@ -130,9 +141,31 @@ export default function App() {
   );
   const [temporaryRight, setTemporaryRight] = useState(false);
   const lesson = useLesson(session, role);
-  const { doc, cards, strokes, peers, status, saved } = lesson;
+  const { doc, cards, strokes, connectors, peers, status, saved } = lesson;
   const [selected, setSelected] = useState<string | null>(null);
   const [selectedRow, setSelectedRow] = useState<string | null>(null);
+  const [selectedItems, setSelectedItems] = useState<Set<string>>(new Set());
+  const [connectFrom, setConnectFrom] = useState<string | null>(null);
+  const [inkColor, setInkColor] = useState("#3159e8");
+  const [inkWidth, setInkWidth] = useState(3);
+  const [highlightColor, setHighlightColor] = useState("#e4aa3d");
+  const [highlightWidth, setHighlightWidth] = useState(20);
+  const [selectionRect, setSelectionRect] = useState<Box | null>(null);
+  const [cardSizes, setCardSizes] = useState<
+    Record<string, { width: number; height: number }>
+  >({});
+  const cardElements = useRef(new Map<string, HTMLElement>());
+  const marquee = useRef<{ start: [number, number]; base: Set<string> } | null>(
+    null,
+  );
+  const resizing = useRef<{
+    card: Card;
+    start: [number, number];
+    width: number;
+    height: number;
+  } | null>(null);
+  const erasing = useRef(false);
+  const gestureMoved = useRef(false);
   const [selectedStroke, setSelectedStroke] = useState<string | null>(null);
   const [input, setInput] = useState("");
   const [settings, setSettings] = useState(false);
@@ -143,7 +176,8 @@ export default function App() {
   const [sharingBusy, setSharingBusy] = useState(false);
   const [notice, setNotice] = useState("");
   const [tool, setTool] = useState<Tool>("select");
-  const [sticker, setSticker] = useState("⭐");
+  const [stickerLibraryOpen, setStickerLibraryOpen] = useState(false);
+  const [sticker, setSticker] = useState("noodles");
   const [sourceLanguage, setSourceLanguage] =
     useState<SourceLanguage>("chinese");
   const [expandedCards, setExpandedCards] = useState<Set<string>>(new Set());
@@ -162,7 +196,11 @@ export default function App() {
   const board = useRef<HTMLDivElement>(null);
   const viewport = useRef<HTMLDivElement>(null);
   const importInput = useRef<HTMLInputElement>(null);
-  const drag = useRef<{ id: string; dx: number; dy: number } | null>(null);
+  const drag = useRef<{
+    start: [number, number];
+    cards: Card[];
+    strokes: Stroke[];
+  } | null>(null);
   const path = useRef<Stroke | null>(null);
   const lastPresence = useRef(0);
   const lastViewPresence = useRef(0);
@@ -183,6 +221,41 @@ export default function App() {
   const hidden = active ? englishHidden(active, teacher) : false;
   const effectiveRightOpen = rightOpen || temporaryRight;
 
+  useLayoutEffect(() => {
+    const next: Record<string, { width: number; height: number }> = {};
+    for (const [id, node] of cardElements.current)
+      next[id] = { width: node.offsetWidth, height: node.offsetHeight };
+    setCardSizes((previous) =>
+      Object.keys(next).length !== Object.keys(previous).length ||
+      Object.entries(next).some(
+        ([id, size]) =>
+          size.width !== previous[id]?.width ||
+          size.height !== previous[id]?.height,
+      )
+        ? next
+        : previous,
+    );
+  }, [cards, role, expandedCards, selectedItems]);
+  useEffect(() => {
+    const valid = new Set(
+      [...cards, ...strokes, ...connectors].map((item) => item.id),
+    );
+    setSelectedItems((previous) => {
+      const next = new Set([...previous].filter((id) => valid.has(id)));
+      return next.size === previous.size ? previous : next;
+    });
+  }, [cards, strokes, connectors]);
+  useEffect(() => {
+    if (selectedItems.size === 1) {
+      const id = [...selectedItems][0];
+      setSelected(cards.some((card) => card.id === id) ? id : null);
+      setSelectedStroke(strokes.some((stroke) => stroke.id === id) ? id : null);
+    } else {
+      setSelected(null);
+      setSelectedStroke(null);
+      setSelectedRow(null);
+    }
+  }, [selectedItems]);
   function notify(message: string) {
     setNotice(message);
     clearTimeout(toastTimer.current);
@@ -347,32 +420,72 @@ export default function App() {
         lesson.redo();
         return;
       }
+      const editing = (event.target as HTMLElement | null)?.closest(
+        'input, textarea, [contenteditable="true"]',
+      );
+      if (!editing && !settings && !sharing && event.key === "Escape") {
+        clearSelection();
+        setTool("select");
+        return;
+      }
+      if (
+        !editing &&
+        !settings &&
+        !sharing &&
+        (event.metaKey || event.ctrlKey) &&
+        event.key.toLowerCase() === "a"
+      ) {
+        event.preventDefault();
+        setSelectedItems(
+          new Set([...cards, ...strokes, ...connectors].map((item) => item.id)),
+        );
+        setRightOpen(true);
+        return;
+      }
       if (event.key !== "Delete" && event.key !== "Backspace") return;
       if (settings || sharing || !doc) return;
       const target = event.target as HTMLElement | null;
       if (target?.closest('input, textarea, [contenteditable="true"]')) return;
-      lesson.stopCapturing();
-      if (selectedStroke) {
-        doc.getMap("strokes").delete(selectedStroke);
-        setSelectedStroke(null);
-        event.preventDefault();
-      } else if (selected && selectedRow) {
-        deleteTableRow(doc, selected, selectedRow);
-        setSelectedRow(null);
-        event.preventDefault();
-      } else if (selected) {
-        doc.getMap("cards").delete(selected);
-        clearSelection();
+      if (selectedItems.size || selectedStroke || selected) {
+        removeSelected();
         event.preventDefault();
       }
-      lesson.stopCapturing();
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [doc, selected, selectedRow, selectedStroke, settings, sharing]);
+  }, [
+    doc,
+    selected,
+    selectedRow,
+    selectedStroke,
+    selectedItems,
+    settings,
+    sharing,
+    cards,
+    strokes,
+    connectors,
+  ]);
 
-  function selectCard(cardId: string, rowId: string | null = null) {
-    setSelected(cardId);
+  function selectCard(
+    cardId: string,
+    rowId: string | null = null,
+    additive = false,
+    preserveGroup = false,
+  ) {
+    if (connectFrom) {
+      if (connectFrom !== cardId) addConnector(connectFrom, cardId);
+      setConnectFrom(null);
+      return;
+    }
+    let next = new Set<string>([cardId]);
+    if (additive) {
+      next = new Set(selectedItems);
+      if (next.has(cardId)) next.delete(cardId);
+      else next.add(cardId);
+    } else if (preserveGroup && selectedItems.has(cardId))
+      next = new Set(selectedItems);
+    setSelectedItems(next);
+    setSelected(next.size === 1 && next.has(cardId) ? cardId : null);
     setSelectedRow(rowId);
     setSelectedStroke(null);
     if (!rightOpen) setTemporaryRight(true);
@@ -381,6 +494,8 @@ export default function App() {
     setSelected(null);
     setSelectedRow(null);
     setSelectedStroke(null);
+    setSelectedItems(new Set());
+    setConnectFrom(null);
     setTemporaryRight(false);
   }
   function switchSession(value: Session) {
@@ -681,20 +796,77 @@ export default function App() {
       lesson.presence({ x, y });
       lastPresence.current = Date.now();
     }
+    if (tool === "erase" && erasing.current && doc) {
+      doc.transact(() => {
+        for (const stroke of strokes)
+          if (nearStroke([x, y], stroke.points, (stroke.width ?? 3) / 2 + 8))
+            doc.getMap("strokes").delete(stroke.id);
+      });
+      return;
+    }
+    if (resizing.current && doc) {
+      const snapshot = resizing.current,
+        [sx, sy] = snapshot.start;
+      let width = clamp(snapshot.width + x - sx, 60, 1400),
+        height = clamp(snapshot.height + y - sy, 45, 1400);
+      if (snapshot.card.kind === "sticker" || event.shiftKey) {
+        const ratio = snapshot.width / snapshot.height;
+        height = width / ratio;
+      }
+      patchCard(doc, snapshot.card.id, {
+        width: Math.round(width),
+        height: Math.round(clamp(height, 45, 1400)),
+        x: Math.min(snapshot.card.x, BOARD_WIDTH - width),
+        y: Math.min(snapshot.card.y, BOARD_HEIGHT - height),
+      });
+      return;
+    }
+    if (marquee.current) {
+      const [sx, sy] = marquee.current.start;
+      const rect = {
+        x: Math.min(sx, x),
+        y: Math.min(sy, y),
+        width: Math.abs(x - sx),
+        height: Math.abs(y - sy),
+      };
+      setSelectionRect(rect);
+      if (rect.width + rect.height > 4) {
+        const next = new Set(marquee.current.base);
+        for (const card of cards)
+          if (intersects(rect, cardBox(card))) next.add(card.id);
+        for (const stroke of strokes)
+          if (intersects(rect, pointsBox(stroke.points))) next.add(stroke.id);
+        setSelectedItems(next);
+        gestureMoved.current = true;
+      }
+      return;
+    }
     if (drag.current && doc) {
-      patchCard(doc, drag.current.id, {
-        x: Math.round(
-          clamp(
-            x - drag.current.dx,
-            0,
-            BOARD_WIDTH -
-              (cards.find((card) => card.id === drag.current?.id)?.kind ===
-              "table"
-                ? 650
-                : 300),
-          ),
-        ),
-        y: Math.round(clamp(y - drag.current.dy, 0, BOARD_HEIGHT - 300)),
+      const snapshot = drag.current;
+      const dx = x - snapshot.start[0],
+        dy = y - snapshot.start[1];
+      if (Math.abs(dx) + Math.abs(dy) > 2) gestureMoved.current = true;
+      const boxes = [
+        ...snapshot.cards.map((card) => cardBox(card)),
+        ...snapshot.strokes.map((stroke) => pointsBox(stroke.points)),
+      ];
+      const minX = Math.min(...boxes.map((box) => box.x)),
+        minY = Math.min(...boxes.map((box) => box.y)),
+        maxX = Math.max(...boxes.map((box) => box.x + box.width)),
+        maxY = Math.max(...boxes.map((box) => box.y + box.height));
+      const moveX = clamp(dx, -minX, BOARD_WIDTH - maxX),
+        moveY = clamp(dy, -minY, BOARD_HEIGHT - maxY);
+      doc.transact(() => {
+        for (const card of snapshot.cards)
+          patchCard(doc, card.id, {
+            x: Math.round(clamp(card.x + moveX, 0, 5300)),
+            y: Math.round(clamp(card.y + moveY, 0, 3300)),
+          });
+        for (const stroke of snapshot.strokes)
+          doc.getMap<Stroke>("strokes").set(stroke.id, {
+            ...stroke,
+            points: stroke.points.map(([px, py]) => [px + moveX, py + moveY]),
+          });
       });
     } else if (path.current) {
       const stroke = path.current;
@@ -704,8 +876,16 @@ export default function App() {
     }
   }
   function endPointer() {
-    if (drag.current) lesson.stopCapturing();
+    if (marquee.current) {
+      marquee.current = null;
+      setSelectionRect(null);
+      if (selectedItems.size && !rightOpen) setTemporaryRight(true);
+    }
+    if (drag.current || resizing.current || erasing.current)
+      lesson.stopCapturing();
     drag.current = null;
+    resizing.current = null;
+    erasing.current = false;
     if (path.current && doc) {
       if (path.current.points.length > 1)
         doc.getMap<Stroke>("strokes").set(path.current.id, path.current);
@@ -714,19 +894,246 @@ export default function App() {
       lesson.stopCapturing();
     }
   }
-  function startDrag(event: PointerEvent<HTMLElement>, card: Card) {
+  function startDrag(event: PointerEvent<Element>, card: Card) {
     if (
       tool !== "select" ||
-      (event.target as HTMLElement).closest(
-        "button, input, textarea, audio, select",
-      )
+      connectFrom ||
+      event.shiftKey ||
+      (event.target as Element).closest("button,input,textarea,audio,select")
     )
       return;
+    const ids = selectedItems.has(card.id) ? selectedItems : new Set([card.id]);
+    selectCard(card.id, null, false, true);
+    beginDrag(event, ids);
+  }
+  function beginDrag(event: PointerEvent<Element>, ids: Set<string>) {
     lesson.stopCapturing();
-    selectCard(card.id);
-    const [x, y] = point(event);
-    drag.current = { id: card.id, dx: x - card.x, dy: y - card.y };
-    event.currentTarget.setPointerCapture(event.pointerId);
+    gestureMoved.current = false;
+    drag.current = {
+      start: point(event),
+      cards: cards.filter((card) => ids.has(card.id)),
+      strokes: strokes.filter((stroke) => ids.has(stroke.id)),
+    };
+    board.current?.setPointerCapture(event.pointerId);
+  }
+  function startStroke(
+    event: PointerEvent<SVGPolylineElement>,
+    stroke: Stroke,
+  ) {
+    event.stopPropagation();
+    if (tool === "erase") {
+      lesson.stopCapturing();
+      erasing.current = true;
+      doc?.getMap("strokes").delete(stroke.id);
+      board.current?.setPointerCapture(event.pointerId);
+      return;
+    }
+    if (tool !== "select") return;
+    const ids = event.shiftKey
+      ? new Set(selectedItems)
+      : selectedItems.has(stroke.id)
+        ? new Set(selectedItems)
+        : new Set<string>();
+    if (event.shiftKey && ids.has(stroke.id)) ids.delete(stroke.id);
+    else ids.add(stroke.id);
+    setSelectedItems(ids);
+    setSelected(null);
+    setSelectedRow(null);
+    setSelectedStroke(ids.size === 1 ? stroke.id : null);
+    if (!rightOpen) setTemporaryRight(true);
+    if (ids.has(stroke.id)) beginDrag(event, ids);
+  }
+  function resizeHandle(card: Card) {
+    if (!selectedItems.has(card.id) || selectedItems.size !== 1) return null;
+    return (
+      <button
+        className="resize-handle"
+        aria-label="Resize element"
+        title="Drag to resize; hold Shift for proportions"
+        onClick={(event) => event.stopPropagation()}
+        onPointerDown={(event) => {
+          event.stopPropagation();
+          lesson.stopCapturing();
+          gestureMoved.current = false;
+          const box = cardBox(card);
+          resizing.current = {
+            card,
+            start: point(event),
+            width: box.width,
+            height: box.height,
+          };
+          board.current?.setPointerCapture(event.pointerId);
+        }}
+      />
+    );
+  }
+  function cardBox(card: Card): Box {
+    const measured = cardSizes[card.id];
+    return {
+      x: card.x,
+      y: card.y,
+      width:
+        (measured?.width ?? card.width) ||
+        (card.kind === "table" ? 650 : card.kind === "sticker" ? 118 : 250),
+      height: (measured?.height ?? card.height) || 120,
+    };
+  }
+  function setElementSize(card: Card, axis: "width" | "height", value: number) {
+    if (!doc) return;
+    const size = clamp(value, axis === "width" ? 60 : 45, 1400);
+    const box = cardBox(card);
+    const width =
+      axis === "width" || card.kind === "sticker" ? size : box.width;
+    const height =
+      axis === "height" || card.kind === "sticker" ? size : box.height;
+    patchCard(doc, card.id, {
+      width,
+      height,
+      x: clamp(card.x, 0, BOARD_WIDTH - width),
+      y: clamp(card.y, 0, BOARD_HEIGHT - height),
+    });
+  }
+  function cardStyle(card: Card): CSSProperties {
+    return {
+      left: card.x,
+      top: card.y,
+      width: card.width || undefined,
+      minHeight: card.height || undefined,
+      height:
+        card.kind === "sticker" ? card.height || card.width || 118 : undefined,
+      backgroundColor:
+        card.kind === "sticker" || card.mode === "characters"
+          ? undefined
+          : card.tint || undefined,
+      "--text-scale": card.textScale,
+    } as CSSProperties;
+  }
+  function addConnector(from: string, to: string) {
+    if (!doc || from === to) return;
+    lesson.stopCapturing();
+    const connector: Connector = {
+      id: crypto.randomUUID(),
+      from,
+      to,
+      color: inkColor,
+      width: 2,
+    };
+    doc.getMap<Connector>("connectors").set(connector.id, connector);
+    lesson.stopCapturing();
+  }
+  function changeDrawing(patch: Partial<Stroke>) {
+    if (!doc) return;
+    doc.transact(() => {
+      for (const stroke of strokes)
+        if (selectedItems.has(stroke.id))
+          doc.getMap<Stroke>("strokes").set(stroke.id, { ...stroke, ...patch });
+      for (const connector of connectors)
+        if (selectedItems.has(connector.id))
+          doc.getMap<Connector>("connectors").set(connector.id, {
+            ...connector,
+            ...(patch.color ? { color: patch.color } : {}),
+            ...(patch.width ? { width: Math.min(12, patch.width) } : {}),
+          });
+    });
+  }
+  function patchSelection(patch: Partial<Card>) {
+    if (!doc) return;
+    doc.transact(() => {
+      for (const card of cards)
+        if (selectedItems.has(card.id)) patchCard(doc, card.id, patch);
+    });
+  }
+  function scaleSelection(factor: number) {
+    if (!doc) return;
+    lesson.stopCapturing();
+    doc.transact(() => {
+      for (const card of cards)
+        if (selectedItems.has(card.id)) {
+          const box = cardBox(card),
+            width = clamp(box.width * factor, 60, 1400),
+            height = clamp(box.height * factor, 45, 1400);
+          patchCard(doc, card.id, {
+            width,
+            height,
+            textScale: clamp(card.textScale * factor, 0.5, 3),
+            x: Math.min(card.x, BOARD_WIDTH - width),
+            y: Math.min(card.y, BOARD_HEIGHT - height),
+          });
+        }
+      for (const stroke of strokes)
+        if (selectedItems.has(stroke.id)) {
+          const box = pointsBox(stroke.points);
+          doc.getMap<Stroke>("strokes").set(stroke.id, {
+            ...stroke,
+            width: clamp((stroke.width ?? 3) * factor, 1, 60),
+            points: stroke.points.map(([x, y]) => [
+              clamp(box.x + (x - box.x) * factor, 0, 5600),
+              clamp(box.y + (y - box.y) * factor, 0, 3600),
+            ]),
+          });
+        }
+    });
+    lesson.stopCapturing();
+  }
+  function duplicateSelection() {
+    if (!doc) return;
+    lesson.stopCapturing();
+    const remap = new Map<string, string>();
+    doc.transact(() => {
+      for (const card of cards)
+        if (selectedItems.has(card.id)) {
+          const copy = createCard({
+            ...card,
+            id: crypto.randomUUID(),
+            created: Date.now(),
+            x: clamp(card.x + 30, 0, 5300),
+            y: clamp(card.y + 30, 0, 3300),
+            receipt: "",
+          });
+          remap.set(card.id, copy.id);
+          addCard(doc, copy);
+        }
+      for (const stroke of strokes)
+        if (selectedItems.has(stroke.id)) {
+          const copy = {
+            ...stroke,
+            id: crypto.randomUUID(),
+            points: stroke.points.map(
+              ([x, y]) =>
+                [Math.min(x + 30, 5600), Math.min(y + 30, 3600)] as [
+                  number,
+                  number,
+                ],
+            ),
+          };
+          remap.set(stroke.id, copy.id);
+          doc.getMap<Stroke>("strokes").set(copy.id, copy);
+        }
+      for (const connector of connectors)
+        if (remap.has(connector.from) && remap.has(connector.to)) {
+          const id = crypto.randomUUID();
+          doc.getMap<Connector>("connectors").set(id, {
+            ...connector,
+            id,
+            from: remap.get(connector.from)!,
+            to: remap.get(connector.to)!,
+          });
+        }
+    });
+    setSelectedItems(new Set(remap.values()));
+    setSelected(null);
+    setSelectedStroke(null);
+    lesson.stopCapturing();
+  }
+  function alignSelection(axis: "x" | "y") {
+    if (!doc) return;
+    const items = cards.filter((card) => selectedItems.has(card.id));
+    const target = Math.min(...items.map((card) => card[axis]));
+    lesson.stopCapturing();
+    doc.transact(() =>
+      items.forEach((card) => patchCard(doc, card.id, { [axis]: target })),
+    );
+    lesson.stopCapturing();
   }
   function updateWords(words: Word[]) {
     if (!doc || !active) return;
@@ -876,7 +1283,13 @@ export default function App() {
   }
   async function backup() {
     const text = JSON.stringify(
-      { format: "jyutboard-v1", title: session.title, cards, strokes },
+      {
+        format: "jyutboard-v1",
+        title: session.title,
+        cards,
+        strokes,
+        connectors,
+      },
       null,
       2,
     );
@@ -914,28 +1327,13 @@ export default function App() {
       const restored = value.cards.map((item: unknown) =>
         cardSchema.parse(item),
       );
-      const drawing: Stroke[] = value.strokes;
-      if (
-        drawing.some(
-          (stroke) =>
-            !stroke ||
-            typeof stroke.id !== "string" ||
-            typeof stroke.color !== "string" ||
-            typeof stroke.arrow !== "boolean" ||
-            !Array.isArray(stroke.points) ||
-            stroke.points.length > 5000 ||
-            stroke.points.some(
-              (point) =>
-                !Array.isArray(point) ||
-                point.length !== 2 ||
-                point.some(
-                  (number) =>
-                    !Number.isFinite(number) || number < 0 || number > 4000,
-                ),
-            ),
-        )
-      )
-        throw Error("Invalid drawings in backup.");
+      const drawing: Stroke[] = value.strokes.map((item: unknown) =>
+        strokeSchema.parse(item),
+      );
+      const attached: Connector[] = (value.connectors ?? []).map(
+        (item: unknown) => connectorSchema.parse(item),
+      );
+      if (attached.length > 2000) throw Error("Too many connectors in backup.");
       const restoredSession = {
         id: newRoom(),
         title: String(value.title || "Imported lesson").slice(0, 100),
@@ -951,6 +1349,9 @@ export default function App() {
       restored.forEach((card: Card) => addCard(document, card));
       drawing.forEach((stroke) =>
         document.getMap<Stroke>("strokes").set(stroke.id, stroke),
+      );
+      attached.forEach((connector: Connector) =>
+        document.getMap<Connector>("connectors").set(connector.id, connector),
       );
       await store.set("imported", Date.now());
       await store.destroy();
@@ -969,19 +1370,31 @@ export default function App() {
   function removeSelected() {
     if (!doc) return;
     lesson.stopCapturing();
-    if (selectedStroke) {
-      doc.getMap("strokes").delete(selectedStroke);
-      setSelectedStroke(null);
-    } else if (selected && selectedRow) {
+    if (selected && selectedRow && selectedItems.size < 2) {
       deleteTableRow(doc, selected, selectedRow);
       setSelectedRow(null);
-    } else if (selected) {
-      doc.getMap("cards").delete(selected);
+    } else {
+      const ids = selectedItems.size
+        ? selectedItems
+        : new Set([selected ?? selectedStroke ?? ""]);
+      doc.transact(() => {
+        for (const id of ids) {
+          doc.getMap("cards").delete(id);
+          doc.getMap("strokes").delete(id);
+          doc.getMap("connectors").delete(id);
+        }
+        for (const connector of connectors)
+          if (ids.has(connector.from) || ids.has(connector.to))
+            doc.getMap("connectors").delete(connector.id);
+      });
       clearSelection();
     }
     lesson.stopCapturing();
   }
-
+  const selectedCards = cards.filter((card) => selectedItems.has(card.id));
+  const activeDrawing =
+    strokes.find((stroke) => selectedItems.has(stroke.id)) ??
+    connectors.find((connector) => selectedItems.has(connector.id));
   const wordOwner = activeRow ?? active;
   const wordList = wordOwner?.words ?? [];
   return (
@@ -1218,6 +1631,14 @@ export default function App() {
                 >
                   <ArrowUpRight size={18} />
                 </button>
+                <button
+                  title="Erase drawings"
+                  aria-label="Erase drawings"
+                  className={tool === "erase" ? "active" : ""}
+                  onClick={() => setTool("erase")}
+                >
+                  <Eraser size={17} />
+                </button>
                 <span className="top-divider" />
                 <button
                   title="Place phrase card on canvas"
@@ -1246,9 +1667,12 @@ export default function App() {
                   title="Place sticker on canvas"
                   aria-label="Place sticker on canvas"
                   className={tool === "sticker" ? "active" : ""}
-                  onClick={() => setTool("sticker")}
+                  onClick={() => {
+                    setTool("sticker");
+                    setStickerLibraryOpen(true);
+                  }}
                 >
-                  ⭐
+                  <StickerArt id="star" />
                 </button>
               </div>
               <div className="tool-group">
@@ -1273,19 +1697,59 @@ export default function App() {
                 </button>
               </div>
             </div>
-            {tool === "sticker" && (
-              <div className="sticker-palette">
-                <span>Pick a sticker, then click the canvas</span>
-                {STICKERS.map((value) => (
+            {["draw", "highlight", "arrow"].includes(tool) && (
+              <div className="drawing-options">
+                <DrawingControls
+                  color={tool === "highlight" ? highlightColor : inkColor}
+                  width={tool === "highlight" ? highlightWidth : inkWidth}
+                  highlighter={tool === "highlight"}
+                  onColor={
+                    tool === "highlight" ? setHighlightColor : setInkColor
+                  }
+                  onWidth={
+                    tool === "highlight" ? setHighlightWidth : setInkWidth
+                  }
+                />
+              </div>
+            )}
+            {tool === "erase" && (
+              <div className="tool-hint">
+                Click or brush across a drawing to erase the mark. Undo restores
+                it.
+              </div>
+            )}
+            {tool === "sticker" && stickerLibraryOpen && (
+              <div className="sticker-popover">
+                <div className="section-head">
+                  <span>Pick a sticker, then click the canvas</span>
                   <button
-                    key={value}
-                    className={sticker === value ? "active" : ""}
-                    aria-label={`Sticker ${value}`}
-                    onClick={() => setSticker(value)}
+                    aria-label="Close stickers"
+                    onClick={() => setTool("select")}
                   >
-                    {value}
+                    <X size={15} />
                   </button>
-                ))}
+                </div>
+                <StickerLibrary
+                  selected={sticker}
+                  onPick={(id) => {
+                    setSticker(id);
+                    setStickerLibraryOpen(false);
+                  }}
+                />
+              </div>
+            )}
+            {tool === "sticker" && !stickerLibraryOpen && (
+              <div className="tool-hint">
+                Click the canvas to place your sticker.{" "}
+                <button onClick={() => setStickerLibraryOpen(true)}>
+                  Change sticker
+                </button>
+              </div>
+            )}
+            {connectFrom && (
+              <div className="tool-hint">
+                Click another element to attach an arrow.{" "}
+                <button onClick={() => setConnectFrom(null)}>Cancel</button>
               </div>
             )}
             {followPeerId && (
@@ -1306,7 +1770,7 @@ export default function App() {
                 }}
               >
                 <div
-                  className={`canvas tool-${tool}`}
+                  className={`canvas tool-${tool} ${connectFrom ? "connecting" : ""}`}
                   ref={board}
                   style={{ transform: `scale(${zoom})` }}
                   onPointerMove={pointerMove}
@@ -1314,8 +1778,30 @@ export default function App() {
                   onPointerCancel={endPointer}
                   onPointerDown={(event) => {
                     if (event.target !== event.currentTarget) return;
-                    clearSelection();
                     const location = point(event);
+                    gestureMoved.current = false;
+                    if (tool === "select" && !connectFrom) {
+                      const base = event.shiftKey
+                        ? new Set(selectedItems)
+                        : new Set<string>();
+                      if (!event.shiftKey) clearSelection();
+                      marquee.current = { start: location, base };
+                      setSelectionRect({
+                        x: location[0],
+                        y: location[1],
+                        width: 0,
+                        height: 0,
+                      });
+                      event.currentTarget.setPointerCapture(event.pointerId);
+                      return;
+                    }
+                    if (tool === "erase") {
+                      lesson.stopCapturing();
+                      erasing.current = true;
+                      event.currentTarget.setPointerCapture(event.pointerId);
+                      return;
+                    }
+                    clearSelection();
                     if (tool === "phrase") {
                       addBlankPhrase(location);
                       return;
@@ -1341,9 +1827,9 @@ export default function App() {
                       path.current = {
                         id: crypto.randomUUID(),
                         points: [location],
-                        color: tool === "highlight" ? "#ffd453" : "#3159e8",
+                        color: tool === "highlight" ? highlightColor : inkColor,
                         arrow: tool === "arrow",
-                        width: tool === "highlight" ? 20 : 3,
+                        width: tool === "highlight" ? highlightWidth : inkWidth,
                         opacity: tool === "highlight" ? 0.46 : 1,
                       };
                       setPending(path.current);
@@ -1358,57 +1844,50 @@ export default function App() {
                       addBlankPhrase(point(event));
                   }}
                 >
-                  <svg
-                    className="drawings"
-                    width={BOARD_WIDTH}
-                    height={BOARD_HEIGHT}
-                  >
-                    <defs>
-                      <marker
-                        id="arrowhead"
-                        markerWidth="8"
-                        markerHeight="8"
-                        refX="7"
-                        refY="4"
-                        orient="auto"
-                      >
-                        <path d="M0,0 L8,4 L0,8" fill="#3159e8" />
-                      </marker>
-                    </defs>
-                    {[...strokes, ...(pending ? [pending] : [])].map(
-                      (stroke) => (
-                        <polyline
-                          key={stroke.id}
-                          className={
-                            selectedStroke === stroke.id
-                              ? "selected-stroke"
-                              : ""
-                          }
-                          points={stroke.points
-                            .map((point) => point.join(","))
-                            .join(" ")}
-                          fill="none"
-                          stroke={stroke.color}
-                          strokeWidth={stroke.width ?? 3}
-                          opacity={stroke.opacity ?? 1}
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          markerEnd={
-                            stroke.arrow ? "url(#arrowhead)" : undefined
-                          }
-                          onPointerDown={(event) => {
-                            if (tool === "select") {
-                              event.stopPropagation();
-                              setSelectedStroke(stroke.id);
-                              setSelected(null);
-                              setSelectedRow(null);
-                              if (!rightOpen) setTemporaryRight(true);
-                            }
-                          }}
-                        />
-                      ),
-                    )}
-                  </svg>
+                  <DrawingLayer
+                    strokes={[...strokes, ...(pending ? [pending] : [])]}
+                    connectors={connectors.flatMap((connector) => {
+                      const a = cards.find(
+                          (card) => card.id === connector.from,
+                        ),
+                        b = cards.find((card) => card.id === connector.to);
+                      return a && b
+                        ? [
+                            {
+                              ...connector,
+                              points: connectorPoints(cardBox(a), cardBox(b)),
+                            },
+                          ]
+                        : [];
+                    })}
+                    selected={selectedItems}
+                    tool={tool}
+                    onStroke={startStroke}
+                    onConnector={(event, connector) => {
+                      event.stopPropagation();
+                      const next = event.shiftKey
+                        ? new Set(selectedItems)
+                        : new Set<string>();
+                      if (event.shiftKey && next.has(connector.id))
+                        next.delete(connector.id);
+                      else next.add(connector.id);
+                      setSelectedItems(next);
+                      setSelected(null);
+                      setSelectedStroke(null);
+                      if (!rightOpen) setTemporaryRight(true);
+                    }}
+                  />
+                  {selectionRect && (
+                    <div
+                      className="selection-marquee"
+                      style={{
+                        left: selectionRect.x,
+                        top: selectionRect.y,
+                        width: selectionRect.width,
+                        height: selectionRect.height,
+                      }}
+                    />
+                  )}
                   {!cards.length && (
                     <div className="welcome">
                       <span className="welcome-icon">粵</span>
@@ -1427,9 +1906,18 @@ export default function App() {
                       <article
                         key={card.id}
                         data-testid="table-card"
-                        className={`board-card table-card ${selected === card.id ? "selected" : ""}`}
-                        style={{ left: card.x, top: card.y }}
-                        onClick={() => selectCard(card.id)}
+                        className={`board-card table-card ${selectedItems.has(card.id) ? "selected" : ""}`}
+                        data-card-id={card.id}
+                        ref={(node) => {
+                          if (node) cardElements.current.set(card.id, node);
+                          else cardElements.current.delete(card.id);
+                        }}
+                        style={cardStyle(card)}
+                        onClick={(event) => {
+                          if (!gestureMoved.current)
+                            selectCard(card.id, null, event.shiftKey, true);
+                          gestureMoved.current = false;
+                        }}
                       >
                         <div
                           className="card-handle"
@@ -1574,26 +2062,49 @@ export default function App() {
                             {card.rows.length === 1 ? "entry" : "entries"}
                           </span>
                         </div>
+                        {resizeHandle(card)}
                       </article>
                     ) : card.kind === "sticker" ? (
                       <article
                         key={card.id}
                         data-testid="sticker-card"
-                        className={`board-card sticker-card ${selected === card.id ? "selected" : ""}`}
-                        style={{ left: card.x, top: card.y }}
-                        onClick={() => selectCard(card.id)}
+                        className={`board-card sticker-card ${selectedItems.has(card.id) ? "selected" : ""}`}
+                        data-card-id={card.id}
+                        ref={(node) => {
+                          if (node) cardElements.current.set(card.id, node);
+                          else cardElements.current.delete(card.id);
+                        }}
+                        style={cardStyle(card)}
+                        onClick={(event) => {
+                          if (!gestureMoved.current)
+                            selectCard(card.id, null, event.shiftKey, true);
+                          gestureMoved.current = false;
+                        }}
                         onPointerDown={(event) => startDrag(event, card)}
                       >
-                        <span>{card.sticker}</span>
+                        <StickerArt
+                          id={card.sticker}
+                          selected={selectedItems.has(card.id)}
+                        />
+                        {resizeHandle(card)}
                       </article>
                     ) : (
                       <article
                         key={card.id}
                         data-testid="phrase-card"
                         tabIndex={0}
-                        className={`board-card phrase-card shape-${card.shape} mode-${card.mode} ${card.kind === "note" ? "note-card" : ""} ${selected === card.id ? "selected" : ""}`}
-                        style={{ left: card.x, top: card.y }}
-                        onClick={() => selectCard(card.id)}
+                        className={`board-card phrase-card shape-${card.shape} mode-${card.mode} ${card.kind === "note" ? "note-card" : ""} ${selectedItems.has(card.id) ? "selected" : ""}`}
+                        data-card-id={card.id}
+                        ref={(node) => {
+                          if (node) cardElements.current.set(card.id, node);
+                          else cardElements.current.delete(card.id);
+                        }}
+                        style={cardStyle(card)}
+                        onClick={(event) => {
+                          if (!gestureMoved.current)
+                            selectCard(card.id, null, event.shiftKey, true);
+                          gestureMoved.current = false;
+                        }}
                         onPointerDown={(event) => {
                           if (
                             !(event.target as HTMLElement).closest(
@@ -1777,6 +2288,7 @@ export default function App() {
                             </div>
                           </>
                         )}
+                        {resizeHandle(card)}
                       </article>
                     ),
                   )}
@@ -1905,7 +2417,172 @@ export default function App() {
           </section>
           {effectiveRightOpen && (
             <aside className="inspector">
-              {selectedStroke ? (
+              {selectedItems.size > 1 ? (
+                <div className="inspector-block group-editor">
+                  <div className="inspector-heading">
+                    <h2>{selectedItems.size} elements</h2>
+                    <button aria-label="Close details" onClick={clearSelection}>
+                      <X size={17} />
+                    </button>
+                  </div>
+                  <p className="small-copy">
+                    Changes apply to the selected elements. Drag any selected
+                    item to move them together.
+                  </p>
+                  <div className="element-actions">
+                    <button onClick={duplicateSelection}>
+                      <CopyPlus size={14} /> Duplicate
+                    </button>
+                    <button onClick={removeSelected}>
+                      <Trash2 size={14} /> Delete all
+                    </button>
+                  </div>
+                  <div className="group-scale">
+                    <button onClick={() => scaleSelection(0.9)}>Smaller</button>
+                    <button onClick={() => scaleSelection(1.1)}>Larger</button>
+                  </div>
+                  {selectedCards.length === selectedItems.size && (
+                    <>
+                      <div className="element-actions">
+                        <button onClick={() => alignSelection("x")}>
+                          Align left
+                        </button>
+                        <button onClick={() => alignSelection("y")}>
+                          Align top
+                        </button>
+                      </div>
+                      {selectedCards.every(
+                        (card) =>
+                          card.kind !== "sticker" && card.mode !== "characters",
+                      ) && (
+                        <label>
+                          Background for all
+                          <input
+                            aria-label="Group background"
+                            type="color"
+                            defaultValue="#ffffff"
+                            onChange={(event) =>
+                              patchSelection({ tint: event.target.value })
+                            }
+                          />
+                        </label>
+                      )}
+                      {selectedCards.every((card) =>
+                        ["phrase", "note"].includes(card.kind),
+                      ) && (
+                        <label>
+                          Shape for all
+                          <select
+                            aria-label="Group shape"
+                            defaultValue=""
+                            onChange={(event) =>
+                              patchSelection({
+                                shape: event.target.value as Card["shape"],
+                              })
+                            }
+                          >
+                            <option value="" disabled>
+                              Choose shape…
+                            </option>
+                            <option value="rounded">Rounded</option>
+                            <option value="sheet">Sheet</option>
+                            <option value="sticky">Sticky</option>
+                          </select>
+                        </label>
+                      )}
+                      {teacher &&
+                        selectedCards.every(
+                          (card) => card.kind === "phrase",
+                        ) && (
+                          <>
+                            <label>
+                              Card mode for all
+                              <select
+                                aria-label="Group card mode"
+                                defaultValue=""
+                                onChange={(event) =>
+                                  patchSelection({
+                                    mode: event.target.value as CardMode,
+                                  })
+                                }
+                              >
+                                <option value="" disabled>
+                                  Choose mode…
+                                </option>
+                                <option value="full">Full</option>
+                                <option value="compact">Compact</option>
+                                <option value="peek">Hover</option>
+                                <option value="characters">
+                                  Plain characters
+                                </option>
+                                <option value="breakdown">Vocabulary</option>
+                                <option value="practice">Practice</option>
+                              </select>
+                            </label>
+                            <label>
+                              Text size for all
+                              <input
+                                aria-label="Group text size"
+                                type="range"
+                                min="0.5"
+                                max="3"
+                                step="0.1"
+                                defaultValue="1"
+                                onChange={(event) =>
+                                  patchSelection({
+                                    textScale: Number(event.target.value),
+                                  })
+                                }
+                              />
+                            </label>
+                          </>
+                        )}
+                      {teacher &&
+                        selectedCards.every((card) =>
+                          ["phrase", "table"].includes(card.kind),
+                        ) && (
+                          <div className="element-actions">
+                            <button
+                              onClick={() =>
+                                patchSelection({ hideEnglishForLearner: true })
+                              }
+                            >
+                              Hide English for all
+                            </button>
+                            <button
+                              onClick={() =>
+                                patchSelection({ hideEnglishForLearner: false })
+                              }
+                            >
+                              Show English for all
+                            </button>
+                          </div>
+                        )}
+                      {selectedCards.length === 2 && (
+                        <button
+                          className="soft wide"
+                          onClick={() =>
+                            addConnector(
+                              selectedCards[0].id,
+                              selectedCards[1].id,
+                            )
+                          }
+                        >
+                          <Link2 size={14} /> Connect these elements
+                        </button>
+                      )}
+                    </>
+                  )}
+                  {selectedCards.length === 0 && activeDrawing && (
+                    <DrawingControls
+                      color={activeDrawing.color}
+                      width={activeDrawing.width ?? 3}
+                      onColor={(color) => changeDrawing({ color })}
+                      onWidth={(width) => changeDrawing({ width })}
+                    />
+                  )}
+                </div>
+              ) : activeDrawing ? (
                 <div className="inspector-block">
                   <div className="inspector-heading">
                     <h2>Drawing</h2>
@@ -1914,8 +2591,18 @@ export default function App() {
                     </button>
                   </div>
                   <p className="small-copy">
-                    Press Delete to remove this stroke.
+                    Click a mark to edit it. Press Delete to remove it.
                   </p>
+                  <DrawingControls
+                    color={activeDrawing.color}
+                    width={activeDrawing.width ?? 3}
+                    highlighter={
+                      "opacity" in activeDrawing &&
+                      Number(activeDrawing.opacity) < 1
+                    }
+                    onColor={(color) => changeDrawing({ color })}
+                    onWidth={(width) => changeDrawing({ width })}
+                  />
                   <button className="delete-action" onClick={removeSelected}>
                     <Trash2 size={14} /> Delete drawing
                   </button>
@@ -1928,12 +2615,116 @@ export default function App() {
                         ? "Table"
                         : active.kind === "note"
                           ? "Note"
-                          : "Phrase"}
+                          : active.kind === "sticker"
+                            ? "Sticker"
+                            : "Phrase"}
                     </h2>
                     <button aria-label="Close details" onClick={clearSelection}>
                       <X size={17} />
                     </button>
                   </div>
+                  <div className="element-actions">
+                    <button
+                      className={connectFrom === active.id ? "active" : ""}
+                      onClick={() =>
+                        setConnectFrom(
+                          connectFrom === active.id ? null : active.id,
+                        )
+                      }
+                    >
+                      <Link2 size={13} /> Connect to…
+                    </button>
+                    <button onClick={duplicateSelection}>
+                      <CopyPlus size={13} /> Duplicate
+                    </button>
+                    <button
+                      aria-label="Delete element"
+                      onClick={removeSelected}
+                    >
+                      <Trash2 size={13} />
+                    </button>
+                  </div>
+                  <details className="size-options">
+                    <summary>
+                      <Scaling size={13} /> Size & style
+                    </summary>
+                    <div className="size-fields">
+                      <label>
+                        Width
+                        <input
+                          aria-label="Element width"
+                          type="number"
+                          min="60"
+                          max="1400"
+                          value={Math.round(cardBox(active).width)}
+                          onChange={(event) =>
+                            setElementSize(
+                              active,
+                              "width",
+                              Number(event.target.value),
+                            )
+                          }
+                        />
+                      </label>
+                      <label>
+                        Height
+                        <input
+                          aria-label="Element height"
+                          type="number"
+                          min="45"
+                          max="1400"
+                          value={Math.round(cardBox(active).height)}
+                          onChange={(event) =>
+                            setElementSize(
+                              active,
+                              "height",
+                              Number(event.target.value),
+                            )
+                          }
+                        />
+                      </label>
+                    </div>
+                    {active.kind !== "sticker" && (
+                      <label>
+                        Text size
+                        <input
+                          aria-label="Text size"
+                          type="range"
+                          min="0.5"
+                          max="3"
+                          step="0.1"
+                          value={active.textScale}
+                          onChange={(event) =>
+                            doc &&
+                            patchCard(doc, active.id, {
+                              textScale: Number(event.target.value),
+                            })
+                          }
+                        />
+                      </label>
+                    )}
+                    {active.kind !== "sticker" &&
+                      active.mode !== "characters" && (
+                        <label>
+                          Background
+                          <input
+                            aria-label="Element background"
+                            type="color"
+                            value={active.tint || "#ffffff"}
+                            onChange={(event) =>
+                              doc &&
+                              patchCard(doc, active.id, {
+                                tint: event.target.value,
+                              })
+                            }
+                          />
+                        </label>
+                      )}
+                    <small>
+                      Drag the corner to resize. Stickers keep their
+                      proportions.
+                    </small>
+                  </details>
                   {active.kind === "table" ? (
                     <>
                       <p className="small-copy">
@@ -2020,19 +2811,12 @@ export default function App() {
                       )}
                     </>
                   ) : active.kind === "sticker" ? (
-                    <div className="sticker-picker">
-                      {STICKERS.map((value) => (
-                        <button
-                          key={value}
-                          aria-label={`Change sticker to ${value}`}
-                          onClick={() =>
-                            doc && patchCard(doc, active.id, { sticker: value })
-                          }
-                        >
-                          {value}
-                        </button>
-                      ))}
-                    </div>
+                    <StickerLibrary
+                      selected={active.sticker}
+                      onPick={(value) =>
+                        doc && patchCard(doc, active.id, { sticker: value })
+                      }
+                    />
                   ) : active.kind === "note" ? (
                     <label>
                       Your note
@@ -2141,7 +2925,7 @@ export default function App() {
                             [
                               "characters",
                               "Characters",
-                              "Chinese only; hover for reading",
+                              "Plain text; hover for reading",
                             ],
                             ["breakdown", "Vocabulary", "Coloured word pieces"],
                             ["practice", "Practice", "Hide English from Leif"],

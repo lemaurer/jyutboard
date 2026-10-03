@@ -186,7 +186,7 @@ test("temporary inspector, compact hover cards, clean split/merge editor and voc
   await expect(page.locator(".inspector")).toBeVisible();
   await card.click();
   await page
-    .getByRole("button", { name: "Characters Chinese only; hover for reading" })
+    .getByRole("button", { name: "Characters Plain text; hover for reading" })
     .click();
   await page.locator(".canvas-viewport").hover({ position: { x: 15, y: 20 } });
   await expect(card.locator(".hover-translation")).not.toBeVisible();
@@ -211,7 +211,7 @@ test("temporary inspector, compact hover cards, clean split/merge editor and voc
   await expect(card.locator(".card-note")).toHaveText("Ask where it is.");
   await page.getByLabel("Hide English from Leif").check();
   await page
-    .getByRole("button", { name: "Characters Chinese only; hover for reading" })
+    .getByRole("button", { name: "Characters Plain text; hover for reading" })
     .click();
   await page.getByRole("button", { name: "Leif", exact: true }).click();
   await card.hover();
@@ -251,11 +251,15 @@ test("centered large canvas, in-place cards, English/Jyutping, stickers and keyb
     "jam2 caa4",
   );
   await page.getByRole("button", { name: "Place sticker on canvas" }).click();
-  await page.getByRole("button", { name: "Sticker 🍜", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Sticker Noodle bowl", exact: true })
+    .click();
   await page
     .locator(".canvas-viewport")
     .click({ position: { x: 160, y: 220 } });
-  await expect(page.getByTestId("sticker-card")).toHaveText("🍜");
+  await expect(
+    page.getByTestId("sticker-card").getByRole("img", { name: "Noodle bowl" }),
+  ).toBeVisible();
   await page.keyboard.press("Delete");
   await expect(page.getByTestId("sticker-card")).toHaveCount(0);
   await page.keyboard.press("Control+z");
@@ -271,15 +275,13 @@ test("centered large canvas, in-place cards, English/Jyutping, stickers and keyb
     .click();
   await page.locator(".canvas-viewport").evaluate((node) => {
     const rect = node.getBoundingClientRect();
-    node
-      .querySelector(".canvas")!
-      .dispatchEvent(
-        new PointerEvent("pointerdown", {
-          bubbles: true,
-          clientX: rect.right - 10,
-          clientY: rect.bottom - 10,
-        }),
-      );
+    node.querySelector(".canvas")!.dispatchEvent(
+      new PointerEvent("pointerdown", {
+        bubbles: true,
+        clientX: rect.right - 10,
+        clientY: rect.bottom - 10,
+      }),
+    );
   });
   await expect(page.getByTestId("phrase-card")).toHaveCount(4);
   expect(
@@ -347,4 +349,197 @@ test("partners see animal cursors, find each other and follow presenter zoom and
     .hover({ position: { x: 110, y: 130 } });
   await teacher.getByRole("button", { name: "Look here", exact: true }).click();
   await expect(learner.locator(".remote-cursor")).toHaveClass(/highlighted/);
+});
+
+test("attached connectors follow resized cards; marquee selection edits, moves and duplicates a group", async ({
+  browser,
+}) => {
+  const page = await blankPage(browser);
+  await page.getByRole("button", { name: "Natasha", exact: true }).click();
+  const viewport = page.locator(".canvas-viewport");
+  const bounds = (await viewport.boundingBox())!;
+  async function moveCard(index: number, x: number, y: number) {
+    const card = page.getByTestId("phrase-card").nth(index);
+    const box = (await card.boundingBox())!;
+    await page.mouse.move(box.x + 30, box.y + 15);
+    await page.mouse.down();
+    await page.mouse.move(bounds.x + x + 30, bounds.y + y + 15, { steps: 8 });
+    await page.mouse.up();
+  }
+  await page.getByLabel("Cantonese phrase").fill("你好");
+  await page.getByRole("button", { name: "Add phrase", exact: true }).click();
+  await moveCard(0, 100, 80);
+  await page.getByLabel("Cantonese phrase").fill("飲水");
+  await page.getByRole("button", { name: "Add phrase", exact: true }).click();
+  await moveCard(1, 490, 200);
+  await page.getByTestId("phrase-card").first().locator("h2").click();
+  await page.getByRole("button", { name: "Connect to…", exact: true }).click();
+  await page.getByTestId("phrase-card").nth(1).locator("h2").click();
+  await expect(page.getByTestId("connector")).toHaveCount(1);
+  const before = await page
+    .getByTestId("connector")
+    .locator("polyline")
+    .first()
+    .getAttribute("points");
+  await moveCard(1, 520, 240);
+  await expect
+    .poll(() =>
+      page
+        .getByTestId("connector")
+        .locator("polyline")
+        .first()
+        .getAttribute("points"),
+    )
+    .not.toBe(before);
+  await viewport.click({ position: { x: 30, y: 30 } });
+  await page.mouse.move(bounds.x + 30, bounds.y + 30);
+  await page.mouse.down();
+  await page.mouse.move(bounds.x + 840, bounds.y + 410, { steps: 10 });
+  await page.mouse.up();
+  await expect(
+    page.getByRole("heading", { name: "2 elements", exact: true }),
+  ).toBeVisible();
+  await page.getByLabel("Group card mode").selectOption("characters");
+  for (const card of await page.getByTestId("phrase-card").all())
+    await expect(card).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+  const original = await page.getByTestId("phrase-card").first().boundingBox();
+  await page.getByRole("button", { name: "Larger", exact: true }).click();
+  await expect
+    .poll(
+      async () =>
+        (await page.getByTestId("phrase-card").first().boundingBox())!.width,
+    )
+    .toBeGreaterThan(original!.width);
+  const locations = await page
+    .getByTestId("phrase-card")
+    .evaluateAll((nodes) =>
+      nodes.map((node) => parseInt((node as HTMLElement).style.left)),
+    );
+  const box = (await page.getByTestId("phrase-card").first().boundingBox())!;
+  await page.mouse.move(box.x + 10, box.y + 10);
+  await page.mouse.down();
+  await page.mouse.move(box.x + 80, box.y + 60, { steps: 8 });
+  await page.mouse.up();
+  const moved = await page
+    .getByTestId("phrase-card")
+    .evaluateAll((nodes) =>
+      nodes.map((node) => parseInt((node as HTMLElement).style.left)),
+    );
+  expect(moved[0] - locations[0]).toBeGreaterThan(50);
+  expect(moved[1] - locations[1]).toBeGreaterThan(50);
+  await page.getByRole("button", { name: "Duplicate", exact: true }).click();
+  await expect(page.getByTestId("phrase-card")).toHaveCount(4);
+  await expect(page.getByTestId("connector")).toHaveCount(2);
+  await page.getByRole("button", { name: "Delete all", exact: true }).click();
+  await expect(page.getByTestId("phrase-card")).toHaveCount(2);
+  await expect(page.getByTestId("connector")).toHaveCount(1);
+  await page.keyboard.press("Control+z");
+  await expect(page.getByTestId("phrase-card")).toHaveCount(4);
+  await expect(page.getByTestId("connector")).toHaveCount(2);
+});
+
+test("illustrated sticker hit area follows its silhouette and resize keeps proportions", async ({
+  browser,
+}) => {
+  const page = await blankPage(browser);
+  const viewport = page.locator(".canvas-viewport");
+  await page.getByRole("button", { name: "Place sticker on canvas" }).click();
+  await expect(page.locator(".sticker-grid button")).toHaveCount(36);
+  await page.getByLabel("Find stickers").fill("Plane");
+  await page
+    .getByRole("button", { name: "Sticker Plane", exact: true })
+    .click();
+  await viewport.click({ position: { x: 90, y: 100 } });
+  const sticker = page.getByTestId("sticker-card");
+  await expect(sticker.getByRole("img", { name: "Plane" })).toBeVisible();
+  await expect(sticker).toHaveCSS("box-shadow", "none");
+  const box = (await sticker.boundingBox())!;
+  await page.mouse.click(box.x + 3, box.y + 3);
+  await expect(sticker).not.toHaveClass(/selected/);
+  await sticker
+    .locator(".sticker-silhouette")
+    .click({ position: { x: 45, y: 40 } });
+  await expect(sticker).toHaveClass(/selected/);
+  const handle = (await sticker
+    .getByRole("button", { name: "Resize element" })
+    .boundingBox())!;
+  await page.mouse.move(handle.x + 5, handle.y + 5);
+  await page.mouse.down();
+  await page.mouse.move(handle.x + 95, handle.y + 70, { steps: 10 });
+  await page.mouse.up();
+  await expect
+    .poll(async () => (await sticker.boundingBox())!.width)
+    .toBeGreaterThan(190);
+  const resized = (await sticker.boundingBox())!;
+  expect(Math.abs(resized.width - resized.height)).toBeLessThan(3);
+  await page.screenshot({ path: "docs/illustrated-stickers.png" });
+});
+
+test("thin drawings and highlights can be selected, recoloured and erased with undo", async ({
+  browser,
+}) => {
+  const page = await blankPage(browser);
+  const viewport = page.locator(".canvas-viewport");
+  const pointOnStroke = async (index: number) =>
+    page
+      .getByTestId("drawing-hit")
+      .nth(index)
+      .evaluate((node) => {
+        const line = node as SVGPolylineElement;
+        const point = line.points.getItem(
+          Math.floor(line.points.numberOfItems / 2),
+        );
+        const screen = new DOMPoint(point.x, point.y).matrixTransform(
+          line.getScreenCTM()!,
+        );
+        return { x: screen.x, y: screen.y };
+      });
+  await page.getByRole("button", { name: "Draw", exact: true }).click();
+  await page.getByRole("button", { name: "Ink #ec6b85", exact: true }).click();
+  const range = page.getByLabel("Stroke thickness");
+  await range.focus();
+  await range.press("Home");
+  await range.press("ArrowRight");
+  await range.press("ArrowRight");
+  const box = (await viewport.boundingBox())!;
+  await page.mouse.move(box.x + 70, box.y + 90);
+  await page.mouse.down();
+  await page.mouse.move(box.x + 260, box.y + 140, { steps: 15 });
+  await page.mouse.up();
+  await expect(page.getByTestId("drawing")).toHaveCount(1);
+  await page
+    .getByRole("button", { name: "Select and move", exact: true })
+    .click();
+  const hit = await pointOnStroke(0);
+  await page.mouse.click(hit.x, hit.y);
+  await expect(
+    page.getByRole("heading", { name: "Drawing", exact: true }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Ink #3aa58b", exact: true }).click();
+  await expect(
+    page.getByTestId("drawing").locator("polyline").first(),
+  ).toHaveAttribute("stroke", "#3aa58b");
+  await page
+    .getByRole("button", { name: "Erase drawings", exact: true })
+    .click();
+  const eraseHit = await pointOnStroke(0);
+  await page.mouse.click(eraseHit.x, eraseHit.y);
+  await expect(page.getByTestId("drawing")).toHaveCount(0);
+  await page.keyboard.press("Control+z");
+  await expect(page.getByTestId("drawing")).toHaveCount(1);
+  await page.getByRole("button", { name: "Highlight", exact: true }).click();
+  await page.mouse.move(box.x + 100, box.y + 200);
+  await page.mouse.down();
+  await page.mouse.move(box.x + 320, box.y + 200, { steps: 8 });
+  await page.mouse.up();
+  await page
+    .getByRole("button", { name: "Select and move", exact: true })
+    .click();
+  const markerHit = await pointOnStroke(1);
+  await page.mouse.click(markerHit.x, markerHit.y);
+  await expect(
+    page.getByRole("heading", { name: "Drawing", exact: true }),
+  ).toBeVisible();
+  await page.keyboard.press("Delete");
+  await expect(page.getByTestId("drawing")).toHaveCount(1);
 });

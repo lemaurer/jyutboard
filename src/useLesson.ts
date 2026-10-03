@@ -3,6 +3,9 @@ import * as Y from "yjs";
 import { IndexeddbPersistence } from "y-indexeddb";
 import {
   readCards,
+  strokeSchema,
+  connectorSchema,
+  type Connector,
   type Card,
   type Presence,
   type Role,
@@ -41,6 +44,7 @@ function validPresence(value: Presence): boolean {
 export function useLesson(session: Session, role: Role) {
   const [doc, setDoc] = useState<Y.Doc | null>(null);
   const [cards, setCards] = useState<Card[]>([]);
+  const [connectors, setConnectors] = useState<Connector[]>([]);
   const [strokes, setStrokes] = useState<Stroke[]>([]);
   const [peers, setPeers] = useState<Record<string, Presence>>({});
   const [status, setStatus] = useState("Solo lesson");
@@ -60,7 +64,11 @@ export function useLesson(session: Session, role: Role) {
       document,
     );
     const manager = new Y.UndoManager(
-      [document.getMap("cards"), document.getMap("strokes")],
+      [
+        document.getMap("cards"),
+        document.getMap("strokes"),
+        document.getMap("connectors"),
+      ],
       { captureTimeout: 450 },
     );
     undoManager.current = manager;
@@ -69,17 +77,17 @@ export function useLesson(session: Session, role: Role) {
       if (!active) return;
       setCards(readCards(document));
       setStrokes(
-        [...document.getMap<Stroke>("strokes").values()].filter(
-          (stroke) =>
-            stroke &&
-            Array.isArray(stroke.points) &&
-            stroke.points.length <= 5000 &&
-            stroke.points.every(
-              (point) =>
-                Array.isArray(point) &&
-                point.length === 2 &&
-                point.every(Number.isFinite),
-            ),
+        [...document.getMap<Stroke>("strokes").values()].flatMap((value) => {
+          const parsed = strokeSchema.safeParse(value);
+          return parsed.success ? [parsed.data] : [];
+        }),
+      );
+      setConnectors(
+        [...document.getMap<Connector>("connectors").values()].flatMap(
+          (value) => {
+            const parsed = connectorSchema.safeParse(value);
+            return parsed.success ? [parsed.data] : [];
+          },
         ),
       );
       setUndoState({
@@ -108,6 +116,7 @@ export function useLesson(session: Session, role: Role) {
     manager.on("stack-cleared", refresh);
     setCards([]);
     setStrokes([]);
+    setConnectors([]);
     setPeers({});
     setDoc(null);
     persistence.whenSynced
@@ -198,6 +207,7 @@ export function useLesson(session: Session, role: Role) {
     doc,
     cards,
     strokes,
+    connectors,
     peers: Object.values(peers),
     status,
     saved,

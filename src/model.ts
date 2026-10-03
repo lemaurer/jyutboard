@@ -44,6 +44,10 @@ export type Card = {
   sourceLanguage: SourceLanguage;
   note: string;
   sticker: string;
+  width: number;
+  height: number;
+  textScale: number;
+  tint: string;
   audio?: string;
   audioName?: string;
   receipt?: string;
@@ -55,6 +59,13 @@ export type Stroke = {
   arrow: boolean;
   width?: number;
   opacity?: number;
+};
+export type Connector = {
+  id: string;
+  from: string;
+  to: string;
+  color: string;
+  width: number;
 };
 export type Session = {
   id: string;
@@ -100,7 +111,11 @@ export function createCard(fields: Partial<Card> = {}): Card {
     hideEnglishForLearner: false,
     sourceLanguage: "chinese",
     note: "",
-    sticker: "⭐",
+    sticker: "star",
+    width: 0,
+    height: 0,
+    textScale: 1,
+    tint: "",
     ...fields,
   };
 }
@@ -224,7 +239,14 @@ export const cardSchema = z.object({
   hideEnglishForLearner: z.boolean().default(false),
   sourceLanguage: z.enum(["chinese", "jyutping", "english"]).default("chinese"),
   note: z.string().max(4000).default(""),
-  sticker: z.string().max(16).default("⭐"),
+  sticker: z.string().max(64).default("star"),
+  width: z.number().min(0).max(1400).default(0),
+  height: z.number().min(0).max(1400).default(0),
+  textScale: z.number().min(0.5).max(3).default(1),
+  tint: z
+    .string()
+    .regex(/^$|^#[0-9a-fA-F]{6}$/)
+    .default(""),
   audio: z
     .string()
     .max(2_800_000)
@@ -332,3 +354,23 @@ export function parseReceipts(payload: unknown, count: number): string[] {
     return `${r.status}${r.message ? ": " + r.message : ""}`;
   });
 }
+
+export const strokeSchema = z.object({
+  id: z.string().max(100),
+  points: z
+    .array(z.tuple([z.number().min(0).max(5600), z.number().min(0).max(3600)]))
+    .max(5000),
+  color: z.string().regex(/^#[0-9a-fA-F]{6}$/),
+  arrow: z.boolean(),
+  width: z.number().min(1).max(60).optional(),
+  opacity: z.number().min(0.1).max(1).optional(),
+});
+export const connectorSchema = z
+  .object({
+    id: z.string().max(100),
+    from: z.string().max(100),
+    to: z.string().max(100),
+    color: z.string().regex(/^#[0-9a-fA-F]{6}$/),
+    width: z.number().min(1).max(12),
+  })
+  .refine((value) => value.from !== value.to);

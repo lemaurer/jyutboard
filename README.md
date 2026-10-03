@@ -10,12 +10,24 @@ A live teaching canvas for learning Cantonese together. Natasha writes naturally
 
 1. Choose **Natasha** or **Leif** in the left panel. The view is local to each computer. Chinese leads on Natasha’s screen; Jyutping leads on Leif’s. Hide either side panel with its button in the top bar whenever you want more canvas.
 2. Choose Chinese, Jyutping, or English in the input and add a phrase. For Chinese, Jyutping and word meanings appear immediately from the bundled offline dictionary. English translation runs in the background while online translation is enabled.
-3. Click a card to edit the phrase and its **Piece by piece** word division, record or attach Natasha’s pronunciation, or save it to the session tray. Natasha can choose a rounded, sheet, or sticky shape and switch between **Full**, **Compact**, **Hover**, **Characters**, **Vocabulary**, and **Practice**. Hover shows just the main text and reveals meaning when pointed at; Characters shows only Chinese until hovered for Jyutping and meaning. Vocabulary shows coloured word pieces: green known, amber learning, pink new. Set these learning states in the word editor. Expand a card to see its embedded note and extra details. Practice hides English throughout Leif’s card and details view. The separate **Hide English from Leif** setting applies to every mode, including hover and the saved tray.
+3. Click a card to edit the phrase and its **Piece by piece** word division, record or attach Natasha’s pronunciation, or save it to the session tray. Natasha can choose a rounded, sheet, or sticky shape and switch between **Full**, **Compact**, **Hover**, **Characters**, **Vocabulary**, and **Practice**. Hover shows just the main text and reveals meaning when pointed at; Characters is transparent, plain Chinese text with no filled card; hover reveals Jyutping and meaning. Vocabulary shows coloured word pieces: green known, amber learning, pink new. Set these learning states in the word editor. Expand a card to see its embedded note and extra details. Practice hides English throughout Leif’s card and details view. The separate **Hide English from Leif** setting applies to every mode, including hover and the saved tray.
 4. Star useful phrases and send them to JyutDeck’s Natasha approval queue. JyutDeck analyses the original Cantonese and handles its own word breakdown. Audio stays on the lesson card because the request API does not accept recordings.
 
 Click the table icon to add a compact phrase table. Natasha enters Chinese; Leif sees Jyutping in that column. English is suggested automatically, and translations and notes are editable in each row. Natasha can hide the table’s English column from Leif. Select a row for its word breakdown.
 
 The canvas starts in the middle of a 5600 × 3600 desk. Double-click empty space or select the phrase tool and click a spot to create a card there. Place sticky notes or stickers the same way. Highlight, pen and arrow tools help explain ideas visually. Drag a phrase card anywhere on its body, or drag tables from their top edge. **⌘Z / Ctrl+Z** undoes your own changes; **⇧⌘Z / Ctrl+Shift+Z** redoes them, preserving your partner’s edits. Select an item and press **Delete** or **Backspace** to remove it; text fields keep their normal editing keys. Pinch the trackpad or hold **Option** while scrolling to zoom in or out around the pointer. Normal two-finger scrolling pans the canvas. The zoom buttons work too. Lessons and audio are saved on the device. Export a lesson backup before changing computers; importing makes a separate copy. The learner can click **Say that again** to send Natasha a quick in-room signal. Selecting a card temporarily opens a hidden details panel; clicking empty space closes it again. A details panel you opened yourself stays open.
+
+## Canvas tools
+
+The sticker library contains 36 original illustrations in seven categories, with search. Stickers respond to clicks on the artwork, and their selection border follows the silhouette. Choose a sticker, then click the canvas to place it; no emoji fonts are needed.
+
+Drag across empty canvas to select several elements, or Shift-click to add/remove individual elements. Move the selection together; the right panel offers shared card modes, shapes, backgrounds, text sizing, alignment, duplication and deletion where applicable. **⌘A / Ctrl+A** selects the whole canvas; **Escape** clears selection. Text fields retain normal selection shortcuts.
+
+Drag the selected element’s corner to resize, or open **Size & style** for exact dimensions. Stickers keep their proportions; hold Shift to preserve proportions when resizing other elements. Select a card or note, choose **Connect**, then click another element: the arrow stays attached as either end moves or resizes. Connectors can be selected and deleted like drawings, and are included in lesson backups and live sync.
+
+Pen, marker and free arrows have simple colour and thickness controls. Select a drawn line to move, recolour or delete it. The eraser removes complete strokes as you brush over them, and undo restores them.
+
+![Illustrated sticker library](docs/illustrated-stickers.png)
 
 ## Live sharing
 
@@ -75,7 +87,7 @@ npm run check
 npm run dist:win
 ```
 
-The Windows installer and portable build appear in `release/`. GitHub Actions builds Mac and Windows packages separately. Create a version tag such as `v0.3.0` to publish downloadable installers on the GitHub Releases page. CI builds are not code signed. Windows SmartScreen may require **More info → Run anyway**.
+The Windows installer and portable build appear in `release/`. GitHub Actions builds Mac and Windows packages separately. Create a version tag such as `v0.4.0` to publish downloadable installers on the GitHub Releases page. CI builds are not code signed. Windows SmartScreen may require **More info → Run anyway**.
 
 ## Relay on a small Linux host
 
@@ -115,4 +127,4 @@ Report bugs through GitHub Issues. Please do not post API tokens or private less
 
 ## Contributing
 
-Issues and small focused pull requests are welcome. Please do not attach private lesson data or secrets to issues. `npm run check` runs the offline language, request-shaping, local undo, reconnect, and relay-isolation tests followed by the production build. `npm run test:e2e` checks two-screen teaching, hover/hidden meanings, split/merge word pieces, tables, temporary panels, cursor attention and camera following.
+Issues and small focused pull requests are welcome. Please do not attach private lesson data or secrets to issues. `npm run check` runs the offline language, request-shaping, local undo, reconnect, and relay-isolation tests followed by the production build. `npm run test:e2e` checks two-screen teaching, hover/hidden meanings, split/merge word pieces, tables, temporary panels, cursor attention, camera following, silhouette sticker selection, transparent cards, attached connectors, group edits, resizing, drawing selection and erasing.
