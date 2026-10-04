@@ -1,5 +1,7 @@
+import { lassoHitsBox, lassoHitsStroke } from "./lasso";
 import { inkOutline } from "./ink";
 import { TabletGestures } from "./TabletGestures";
+import { copyInvitation } from "./clipboard";
 import { webInvitation, storedPair } from "./webRuntime";
 import {
   useEffect,
@@ -29,6 +31,7 @@ import {
   LocateFixed,
   Minus,
   MousePointer2,
+  Lasso,
   PanelLeft,
   PanelRight,
   Pencil,
@@ -192,13 +195,8 @@ export default function App() {
       matchMedia("(pointer: coarse)").matches ? "false" : "true",
     ) === "true",
   );
-  const [rightOpen, setRightOpen] = useState(
-    loadPreference(
-      "rightOpen",
-      matchMedia("(pointer: coarse)").matches ? "false" : "true",
-    ) === "true",
-  );
-  const [temporaryRight, setTemporaryRight] = useState(false);
+  const [rightOpen, setRightOpen] = useState(false);
+  const tablet = matchMedia("(pointer: coarse)").matches;
   const lesson = useLesson(session, role);
   const { doc, cards, strokes, connectors, peers, status, saved } = lesson;
   const [selected, setSelected] = useState<string | null>(null);
@@ -210,6 +208,12 @@ export default function App() {
   const [highlightColor, setHighlightColor] = useState("#e4aa3d");
   const [highlightWidth, setHighlightWidth] = useState(20);
   const [selectionRect, setSelectionRect] = useState<Box | null>(null);
+  const lasso = useRef<{
+    points: [number, number][];
+    candidate?: string;
+  } | null>(null);
+  const [lassoPath, setLassoPath] = useState<[number, number][]>([]);
+  const lassoLine = useRef<SVGPolylineElement>(null);
   const [cardSizes, setCardSizes] = useState<
     Record<string, { width: number; height: number }>
   >({});
@@ -289,25 +293,59 @@ export default function App() {
   const tabletGestures = useRef<TabletGestures | null>(null);
   const toolRef = useRef(tool);
   toolRef.current = tool;
-  const navigationRef = useRef({ stopFollowing, publishView });
-  navigationRef.current = { stopFollowing, publishView };
+  const navigationRef = useRef({ stopFollowing, publishView, selectedItems });
+  navigationRef.current = { stopFollowing, publishView, selectedItems };
+  const camera = useRef<{ x: number; y: number; zoom: number } | null>(null);
+  const cameraFrame = useRef(0);
+  const cameraCommit = useRef<ReturnType<typeof setTimeout> | undefined>(
+    undefined,
+  );
+  function flushCamera(commit = false) {
+    cancelAnimationFrame(cameraFrame.current);
+    const view = camera.current,
+      node = viewport.current,
+      canvas = board.current;
+    if (!view || !node || !canvas) return;
+    const space = canvas.parentElement!;
+    space.style.width = `${BOARD_WIDTH * view.zoom}px`;
+    space.style.height = `${BOARD_HEIGHT * view.zoom}px`;
+    canvas.style.transform = `scale(${view.zoom})`;
+    zoomRef.current = view.zoom;
+    node.scrollLeft = view.x;
+    node.scrollTop = view.y;
+    navigationRef.current.publishView();
+    if (commit) {
+      camera.current = null;
+      setZoom(view.zoom);
+    }
+  }
   useEffect(() => {
     const node = viewport.current;
     if (!node) return;
     tabletGestures.current = new TabletGestures(
       node,
-      () => ({ x: node.scrollLeft, y: node.scrollTop, zoom: zoomRef.current }),
+      () =>
+        camera.current ?? {
+          x: node.scrollLeft,
+          y: node.scrollTop,
+          zoom: zoomRef.current,
+        },
       (view) => {
         navigationRef.current.stopFollowing();
-        zoomRef.current = view.zoom;
-        setZoom(view.zoom);
-        requestAnimationFrame(() => {
-          node.scrollLeft = view.x;
-          node.scrollTop = view.y;
-          navigationRef.current.publishView();
-        });
+        camera.current = view;
+        cancelAnimationFrame(cameraFrame.current);
+        cameraFrame.current = requestAnimationFrame(() => flushCamera());
+        clearTimeout(cameraCommit.current);
+        cameraCommit.current = setTimeout(() => flushCamera(true), 120);
       },
       () => toolRef.current,
+      (event) => {
+        const target = event.target as Element;
+        const id =
+          target.closest<HTMLElement>("[data-card-id]")?.dataset.cardId ||
+          target.closest<SVGElement>("[data-stroke-id]")?.dataset.strokeId;
+        return Boolean(id && navigationRef.current.selectedItems.has(id));
+      },
     );
     const releasePen = (event: globalThis.PointerEvent) =>
       tabletGestures.current?.releasePen(event);
@@ -316,6 +354,8 @@ export default function App() {
     return () => {
       window.removeEventListener("pointerup", releasePen);
       window.removeEventListener("pointercancel", releasePen);
+      cancelAnimationFrame(cameraFrame.current);
+      clearTimeout(cameraCommit.current);
       tabletGestures.current = null;
     };
   }, []);
@@ -347,7 +387,10 @@ export default function App() {
     start: [number, number];
     cards: Card[];
     strokes: Stroke[];
+    move?: [number, number];
+    editTarget?: HTMLElement;
   } | null>(null);
+  const dragFrame = useRef(0);
   const path = useRef<Stroke | null>(null);
   const lastPresence = useRef(0);
   const lastViewPresence = useRef(0);
@@ -364,6 +407,9 @@ export default function App() {
   const active = cards.find((card) => card.id === selected);
   const activeRow = active?.rows.find((row) => row.id === selectedRow);
   const teacher = role === "teacher";
+  useEffect(() => {
+    if (tablet) setSourceLanguage(role === "teacher" ? "chinese" : "jyutping");
+  }, [role, tablet]);
   const stars = cards.flatMap((card) =>
     card.kind === "conversation"
       ? card.rows
@@ -374,7 +420,7 @@ export default function App() {
         : [],
   );
   const hidden = !teacher && (activeRow?.mode ?? active?.mode) === "practice";
-  const effectiveRightOpen = rightOpen || temporaryRight;
+  const effectiveRightOpen = rightOpen;
 
   useLayoutEffect(() => {
     const next: Record<string, { width: number; height: number }> = {};
@@ -424,9 +470,6 @@ export default function App() {
   useEffect(() => {
     preference("leftOpen", String(leftOpen));
   }, [leftOpen]);
-  useEffect(() => {
-    preference("rightOpen", String(rightOpen));
-  }, [rightOpen]);
   useEffect(() => {
     zoomRef.current = zoom;
     publishView();
@@ -559,15 +602,11 @@ export default function App() {
         continue;
       lastAttention.current[peer.id] = peer.attentionAt;
       jumpToPeer(peer);
-      notify(
-        `${peer.role === "teacher" ? "Natasha" : "Leif"} called you to their cursor.`,
-      );
     }
   }, [peers]);
   useEffect(() => {
     if (selected && !cards.some((card) => card.id === selected)) {
       setSelected(null);
-      setTemporaryRight(false);
       setSelectedRow(null);
     }
     if (
@@ -645,7 +684,7 @@ export default function App() {
         setSelectedItems(
           new Set([...cards, ...strokes, ...connectors].map((item) => item.id)),
         );
-        setRightOpen(true);
+
         return;
       }
       if (event.key !== "Delete" && event.key !== "Backspace") return;
@@ -694,7 +733,6 @@ export default function App() {
     setSelected(next.size === 1 && next.has(cardId) ? cardId : null);
     setSelectedRow(rowId);
     setSelectedStroke(null);
-    if (!rightOpen) setTemporaryRight(true);
   }
   function clearSelection() {
     setSelected(null);
@@ -702,7 +740,6 @@ export default function App() {
     setSelectedStroke(null);
     setSelectedItems(new Set());
     setConnectFrom(null);
-    setTemporaryRight(false);
   }
   function switchSession(value: Session) {
     setSession(value);
@@ -785,8 +822,7 @@ export default function App() {
   }
   function callPartnerHere() {
     const [x, y] = ownCursor.current ?? viewCenter();
-    lesson.presence({ x, y, attentionAt: Date.now(), signal: "Look here" });
-    notify("Called your partner to this spot.");
+    lesson.presence({ x, y, attentionAt: Date.now() });
   }
   function stopFollowing() {
     if (autoFollowing && followPeerId) setDismissedPresenter(followPeerId);
@@ -1003,6 +1039,21 @@ export default function App() {
       }),
     );
   }
+  function beginInk(event: PointerEvent) {
+    lesson.stopCapturing();
+    path.current = {
+      id: crypto.randomUUID(),
+      points: [point(event)],
+      pressures:
+        event.pointerType === "pen" ? [event.pressure || 0.5] : undefined,
+      color: tool === "highlight" ? highlightColor : inkColor,
+      arrow: tool === "arrow",
+      width: tool === "highlight" ? highlightWidth : inkWidth,
+      opacity: tool === "highlight" ? 0.46 : 1,
+    };
+    setPending(path.current);
+    event.currentTarget.setPointerCapture(event.pointerId);
+  }
   function pointerMove(event: PointerEvent) {
     const [x, y] = point(event);
     ownCursor.current = [x, y];
@@ -1048,6 +1099,22 @@ export default function App() {
       });
       return;
     }
+    if (lasso.current) {
+      const points = lasso.current.points;
+      if (
+        Math.hypot(
+          x - points[points.length - 1][0],
+          y - points[points.length - 1][1],
+        ) > 2
+      )
+        points.push([x, y]);
+      lassoLine.current?.setAttribute(
+        "points",
+        points.map((p) => p.join(",")).join(" "),
+      );
+      gestureMoved.current ||= points.length > 2;
+      return;
+    }
     if (marquee.current) {
       const [sx, sy] = marquee.current.start;
       const rect = {
@@ -1086,17 +1153,17 @@ export default function App() {
         maxY = Math.max(...boxes.map((box) => box.y + box.height));
       const moveX = clamp(dx, -minX, BOARD_WIDTH - maxX),
         moveY = clamp(dy, -minY, BOARD_HEIGHT - maxY);
-      doc.transact(() => {
-        for (const card of snapshot.cards)
-          patchCard(doc, card.id, {
-            x: Math.round(clamp(card.x + moveX, 0, 5300)),
-            y: Math.round(clamp(card.y + moveY, 0, 3300)),
-          });
+      snapshot.move = [moveX, moveY];
+      cancelAnimationFrame(dragFrame.current);
+      dragFrame.current = requestAnimationFrame(() => {
+        for (const card of snapshot.cards) {
+          const node = cardElements.current.get(card.id);
+          if (node) node.style.translate = `${moveX}px ${moveY}px`;
+        }
         for (const stroke of snapshot.strokes)
-          doc.getMap<Stroke>("strokes").set(stroke.id, {
-            ...stroke,
-            points: stroke.points.map(([px, py]) => [px + moveX, py + moveY]),
-          });
+          board.current
+            ?.querySelector(`[data-stroke-id="${stroke.id}"]`)
+            ?.setAttribute("transform", `translate(${moveX} ${moveY})`);
       });
     } else if (path.current) {
       const stroke = path.current;
@@ -1134,7 +1201,39 @@ export default function App() {
       }
     }
   }
+  function cancelDrag() {
+    cancelAnimationFrame(dragFrame.current);
+    const snapshot = drag.current;
+    for (const card of snapshot?.cards || []) {
+      const node = cardElements.current.get(card.id);
+      if (node) node.style.translate = "";
+    }
+    for (const stroke of snapshot?.strokes || [])
+      board.current
+        ?.querySelector(`[data-stroke-id="${stroke.id}"]`)
+        ?.removeAttribute("transform");
+    drag.current = null;
+    if (board.current) delete board.current.dataset.gesture;
+  }
   function endPointer(event?: { clientX: number; clientY: number }) {
+    if (lasso.current) {
+      const { points, candidate } = lasso.current;
+      lasso.current = null;
+      setLassoPath([]);
+      if (points.length < 3) {
+        if (candidate && cards.some((card) => card.id === candidate))
+          selectCard(candidate);
+        else if (candidate) setSelectedItems(new Set([candidate]));
+        else clearSelection();
+      } else {
+        const ids = new Set<string>();
+        for (const card of cards)
+          if (lassoHitsBox(points, cardBox(card))) ids.add(card.id);
+        for (const stroke of strokes)
+          if (lassoHitsStroke(points, stroke.points)) ids.add(stroke.id);
+        setSelectedItems(ids);
+      }
+    }
     if (board.current) delete board.current.dataset.gesture;
     if (connectorDrag.current) {
       const from = connectorDrag.current.from;
@@ -1164,11 +1263,26 @@ export default function App() {
     if (marquee.current) {
       marquee.current = null;
       setSelectionRect(null);
-      if (selectedItems.size && !rightOpen) setTemporaryRight(true);
     }
     if (drag.current || resizing.current || erasing.current)
       lesson.stopCapturing();
-    drag.current = null;
+    if (drag.current?.editTarget && !gestureMoved.current)
+      drag.current.editTarget.focus({ preventScroll: true });
+    if (drag.current?.move && doc) {
+      const snapshot = drag.current,
+        [dx, dy] = snapshot.move!;
+      doc.transact(() => {
+        for (const card of snapshot.cards)
+          patchCard(doc, card.id, { x: card.x + dx, y: card.y + dy });
+        for (const stroke of snapshot.strokes)
+          doc.getMap<Stroke>("strokes").set(stroke.id, {
+            ...stroke,
+            points: stroke.points.map(([x, y]) => [x + dx, y + dy]),
+          });
+      });
+      lesson.stopCapturing();
+    }
+    cancelDrag();
     resizing.current = null;
     erasing.current = false;
     if (path.current && doc) {
@@ -1203,6 +1317,9 @@ export default function App() {
     gestureMoved.current = false;
     drag.current = {
       start: point(event),
+      editTarget:
+        (event.target as HTMLElement).closest<HTMLElement>("input,textarea") ??
+        undefined,
       cards: cards.filter((card) => ids.has(card.id)),
       strokes: strokes.filter((stroke) => ids.has(stroke.id)),
     };
@@ -1231,7 +1348,6 @@ export default function App() {
     setSelected(null);
     setSelectedRow(null);
     setSelectedStroke(ids.size === 1 ? stroke.id : null);
-    if (!rightOpen) setTemporaryRight(true);
     if (ids.has(stroke.id)) beginDrag(event, ids);
   }
   function changeAnswer(cardId: string, row: TableRow, text: string) {
@@ -1462,7 +1578,8 @@ export default function App() {
           ? card.tint || undefined
           : card.tint || "transparent",
       "--text-scale": card.textScale,
-      "--card-fill": card.tint || "transparent",
+      "--card-fill":
+        card.tint || (card.kind === "conversation" ? "" : "transparent"),
     } as CSSProperties;
   }
   function addConnector(from: string, to: string) {
@@ -1913,7 +2030,7 @@ export default function App() {
               <X size={18} />
             </button>
           </div>
-          {paired && (
+          {paired && !tablet && (
             <button
               className="join-partner"
               disabled={sharingBusy}
@@ -2069,9 +2186,8 @@ export default function App() {
                 title={`Find ${peer.role === "teacher" ? "Natasha" : "Leif"} on the canvas`}
                 onClick={() => jumpToPeer(peer)}
               >
-                <span>{peer.role === "teacher" ? "🐻" : "🦝"}</span>
+                <span>{peer.role === "teacher" ? "🦝" : "🐻"}</span>
                 {peer.role === "teacher" ? "Natasha" : "Leif"}
-                <LocateFixed size={13} />
               </button>
             ))}
             {peers.length > 0 && (
@@ -2116,12 +2232,7 @@ export default function App() {
               }
               aria-label={effectiveRightOpen ? "Hide details" : "Show details"}
               title={effectiveRightOpen ? "Hide details" : "Show details"}
-              onClick={() => {
-                if (temporaryRight) {
-                  setTemporaryRight(false);
-                  setRightOpen(false);
-                } else setRightOpen((value) => !value);
-              }}
+              onClick={() => setRightOpen((value) => !value)}
             >
               <PanelRight size={18} />
             </button>
@@ -2130,19 +2241,6 @@ export default function App() {
         <div className="workspace">
           <section className="canvas-column">
             <div className="canvas-actions">
-              {window.desktop?.web && paired && (
-                <button
-                  className="tablet-join"
-                  disabled={sharingBusy}
-                  onClick={() => void joinPartner()}
-                >
-                  {sharingBusy
-                    ? "Joining…"
-                    : teacher
-                      ? "Join Leif"
-                      : "Join Natasha"}
-                </button>
-              )}
               <div className="tool-group">
                 <button
                   className={`touch-pan ${tool === "pan" ? "active" : ""}`}
@@ -2153,12 +2251,12 @@ export default function App() {
                   <Hand size={18} />
                 </button>
                 <button
-                  title="Select and move"
-                  aria-label="Select and move"
+                  title={tablet ? "Lasso selection" : "Select and move"}
+                  aria-label={tablet ? "Lasso selection" : "Select and move"}
                   className={tool === "select" ? "active" : ""}
                   onClick={() => setTool("select")}
                 >
-                  <MousePointer2 size={17} />
+                  {tablet ? <Lasso size={18} /> : <MousePointer2 size={17} />}
                 </button>
                 <button
                   title="Draw"
@@ -2257,12 +2355,13 @@ export default function App() {
                   <Zap size={18} />
                 </button>
               </div>
-              {active && (
+              {(active || selectedItems.size > 1) && (
                 <div
                   className="tool-group selection-tools"
                   aria-label="Selected element controls"
                 >
-                  {teacher &&
+                  {active &&
+                    teacher &&
                     ["phrase", "conversation", "table"].includes(
                       active.kind,
                     ) && (
@@ -2289,7 +2388,7 @@ export default function App() {
                         <option value="practice">Practice</option>
                       </select>
                     )}
-                  {["phrase", "note"].includes(active.kind) && (
+                  {active && ["phrase", "note"].includes(active.kind) && (
                     <button
                       title="Edit text in place"
                       aria-label="Edit text in place"
@@ -2432,11 +2531,62 @@ export default function App() {
               className="canvas-viewport"
               ref={viewport}
               onPointerDownCapture={(e) => {
-                if (tabletGestures.current?.down(e.nativeEvent)) {
-                  drag.current = null;
-                  marquee.current = null;
-                  resizing.current = null;
-                  setSelectionRect(null);
+                const gestures = tabletGestures.current;
+                if (gestures?.down(e.nativeEvent)) {
+                  if (gestures.navigationActive) {
+                    cancelDrag();
+                    lasso.current = null;
+                    setLassoPath([]);
+                    marquee.current = null;
+                    resizing.current = null;
+                    setSelectionRect(null);
+                    if (path.current || laser.current || erasing.current)
+                      endPointer();
+                  }
+                  e.preventDefault();
+                  e.stopPropagation();
+                  return;
+                }
+                if (!tablet || !["touch", "pen"].includes(e.pointerType))
+                  return;
+                const target = e.target as HTMLElement;
+                if (
+                  target.closest("button,select,audio,summary") ||
+                  target === document.activeElement
+                )
+                  return;
+                const cardId =
+                  target.closest<HTMLElement>("[data-card-id]")?.dataset.cardId;
+                const strokeId =
+                  target.closest<SVGElement>("[data-stroke-id]")?.dataset
+                    .strokeId;
+                const id = cardId || strokeId;
+                if (
+                  id &&
+                  selectedItems.has(id) &&
+                  (e.pointerType === "touch" || tool === "select")
+                ) {
+                  beginDrag(e, selectedItems);
+                  e.currentTarget.setPointerCapture(e.pointerId);
+                  e.preventDefault();
+                  e.stopPropagation();
+                  return;
+                }
+                if (
+                  e.pointerType === "pen" &&
+                  cardId &&
+                  ["draw", "highlight", "arrow"].includes(tool)
+                ) {
+                  beginInk(e);
+                  e.preventDefault();
+                  e.stopPropagation();
+                  return;
+                }
+                if (tool === "select") {
+                  clearSelection();
+                  lasso.current = { points: [point(e)], candidate: id };
+                  setLassoPath(lasso.current.points);
+                  e.currentTarget.setPointerCapture(e.pointerId);
                   e.preventDefault();
                   e.stopPropagation();
                 }
@@ -2465,7 +2615,7 @@ export default function App() {
                 }}
               >
                 <div
-                  className={`canvas tool-${tool} ${connectFrom ? "connecting" : ""}`}
+                  className={`canvas ${tablet ? "tablet-canvas" : ""} tool-${tool} ${connectFrom ? "connecting" : ""}`}
                   ref={board}
                   style={{ transform: `scale(${zoom})` }}
                   onPointerMove={pointerMove}
@@ -2527,20 +2677,7 @@ export default function App() {
                       tool === "highlight"
                     ) {
                       lesson.stopCapturing();
-                      path.current = {
-                        id: crypto.randomUUID(),
-                        points: [location],
-                        pressures:
-                          event.pointerType === "pen"
-                            ? [event.pressure || 0.5]
-                            : undefined,
-                        color: tool === "highlight" ? highlightColor : inkColor,
-                        arrow: tool === "arrow",
-                        width: tool === "highlight" ? highlightWidth : inkWidth,
-                        opacity: tool === "highlight" ? 0.46 : 1,
-                      };
-                      setPending(path.current);
-                      event.currentTarget.setPointerCapture(event.pointerId);
+                      beginInk(event);
                     }
                   }}
                   onDoubleClick={(event) => {
@@ -2581,7 +2718,6 @@ export default function App() {
                       setSelectedItems(next);
                       setSelected(null);
                       setSelectedStroke(null);
-                      if (!rightOpen) setTemporaryRight(true);
                     }}
                   />
                   <svg
@@ -2672,6 +2808,22 @@ export default function App() {
                         />
                       )}
                   </svg>
+                  {lassoPath.length > 0 && (
+                    <svg
+                      className="lasso-layer"
+                      width={BOARD_WIDTH}
+                      height={BOARD_HEIGHT}
+                    >
+                      <polyline
+                        ref={lassoLine}
+                        points={lassoPath.map((p) => p.join(",")).join(" ")}
+                        fill="#718ab610"
+                        stroke="#718ab6"
+                        strokeWidth={1.5 / zoom}
+                        strokeDasharray={`${5 / zoom} ${4 / zoom}`}
+                      />
+                    </svg>
+                  )}
                   {selectionRect && (
                     <div
                       className="selection-marquee"
@@ -2736,9 +2888,6 @@ export default function App() {
                           }
                           onEnrich={(row) =>
                             doc && void enrichRow(doc, card.id, row)
-                          }
-                          onSend={(row) =>
-                            void sendToQueue([conversationPhrase(card, row)])
                           }
                           onSelect={(row) => selectCard(card.id, row.id)}
                           onAdd={() =>
@@ -3045,11 +3194,6 @@ export default function App() {
                                     "Add a meaning in the details panel."}
                                 </div>
                               )}
-                            {card.mode === "practice" && !teacher && (
-                              <div className="practice-mask">
-                                <EyeOff size={13} /> Meaning hidden by Natasha
-                              </div>
-                            )}
                             {card.mode === "full" && card.note && (
                               <p className="card-note">{card.note}</p>
                             )}
@@ -3096,11 +3240,11 @@ export default function App() {
                         key={peer.id}
                       >
                         <strong aria-hidden="true">
-                          {peer.role === "teacher" ? "🐻" : "🦝"}
+                          {peer.role === "teacher" ? "🦝" : "🐻"}
                         </strong>
-                        <span>
+                        <small className="cursor-name">
                           {peer.role === "teacher" ? "Natasha" : "Leif"}
-                        </span>
+                        </small>
                       </div>
                     ))}
                 </div>
@@ -3130,15 +3274,13 @@ export default function App() {
                 {saved}
               </div>
             </div>
-            {peers.some((peer) => peer.signal || peer.draft) && (
+            {peers.some((peer) => peer.draft) && (
               <div className="live-strip">
                 {peers.map((peer) => (
                   <span key={peer.id}>
-                    {peer.signal
-                      ? `${peer.role === "teacher" ? "Natasha" : "Leif"}: ${peer.signal}`
-                      : peer.draft
-                        ? `${peer.role === "teacher" ? "Natasha" : "Leif"} is writing: ${teacher ? peer.draft : analyzeLocal(peer.draft).jyutping}`
-                        : ""}
+                    {peer.draft
+                      ? `${peer.role === "teacher" ? "Natasha" : "Leif"} is writing: ${teacher ? peer.draft : analyzeLocal(peer.draft).jyutping}`
+                      : ""}
                   </span>
                 ))}
               </div>
@@ -3188,22 +3330,24 @@ export default function App() {
                   <Plus size={17} /> Add phrase
                 </button>
               </div>
-              <div className="composer-controls">
-                <label className="input-language">
-                  Write in{" "}
-                  <select
-                    aria-label="Input language"
-                    value={sourceLanguage}
-                    onChange={(event) =>
-                      setSourceLanguage(event.target.value as SourceLanguage)
-                    }
-                  >
-                    <option value="chinese">中文 · Chinese</option>
-                    <option value="jyutping">Jyutping</option>
-                    <option value="english">English</option>
-                  </select>
-                </label>
-              </div>
+              {!tablet && (
+                <div className="composer-controls">
+                  <label className="input-language">
+                    Write in{" "}
+                    <select
+                      aria-label="Input language"
+                      value={sourceLanguage}
+                      onChange={(event) =>
+                        setSourceLanguage(event.target.value as SourceLanguage)
+                      }
+                    >
+                      <option value="chinese">中文 · Chinese</option>
+                      <option value="jyutping">Jyutping</option>
+                      <option value="english">English</option>
+                    </select>
+                  </label>
+                </div>
+              )}
             </form>
           </section>
           {effectiveRightOpen && (
@@ -3212,7 +3356,10 @@ export default function App() {
                 <div className="inspector-block group-editor">
                   <div className="inspector-heading">
                     <h2>{selectedItems.size} elements</h2>
-                    <button aria-label="Close details" onClick={clearSelection}>
+                    <button
+                      aria-label="Close details"
+                      onClick={() => setRightOpen(false)}
+                    >
                       <X size={17} />
                     </button>
                   </div>
@@ -3294,6 +3441,7 @@ export default function App() {
                                   patchSelection({
                                     mode: event.target.value as CardMode,
                                     hideEnglishForLearner: false,
+                                    height: 0,
                                   })
                                 }
                               >
@@ -3351,7 +3499,10 @@ export default function App() {
                 <div className="inspector-block">
                   <div className="inspector-heading">
                     <h2>Drawing</h2>
-                    <button aria-label="Close details" onClick={clearSelection}>
+                    <button
+                      aria-label="Close details"
+                      onClick={() => setRightOpen(false)}
+                    >
                       <X size={17} />
                     </button>
                   </div>
@@ -3386,7 +3537,10 @@ export default function App() {
                               ? "Sticker"
                               : "Phrase"}
                     </h2>
-                    <button aria-label="Close details" onClick={clearSelection}>
+                    <button
+                      aria-label="Close details"
+                      onClick={() => setRightOpen(false)}
+                    >
                       <X size={17} />
                     </button>
                   </div>
@@ -3413,6 +3567,7 @@ export default function App() {
                               patchCard(doc, active.id, {
                                 mode: e.target.value as Card["mode"],
                                 hideEnglishForLearner: false,
+                                height: 0,
                               });
                               active.rows.forEach((row) =>
                                 patchTableRow(doc, active.id, row.id, {
@@ -3654,17 +3809,6 @@ export default function App() {
                                   ? "Unsave bubble"
                                   : "Save bubble"}
                               </button>
-                              <button
-                                disabled={sending || !activeRow.chinese.trim()}
-                                onClick={() =>
-                                  void sendToQueue([
-                                    conversationPhrase(active, activeRow),
-                                  ])
-                                }
-                              >
-                                <Send size={14} />
-                                Send bubble to JyutDeck
-                              </button>
                               {activeRow.receipt && (
                                 <p className="receipt">{activeRow.receipt}</p>
                               )}
@@ -3821,6 +3965,7 @@ export default function App() {
                               patchCard(doc, active.id, {
                                 mode,
                                 hideEnglishForLearner: false,
+                                height: 0,
                               })
                             }
                           >
@@ -4108,11 +4253,13 @@ export default function App() {
                         />
                         <button
                           onClick={() =>
-                            void navigator.clipboard
-                              .writeText(
-                                webInvitation(session.id, session.relay!),
-                              )
+                            void copyInvitation(
+                              webInvitation(session.id, session.relay!),
+                            )
                               .then(() => notify("iPad link copied."))
+                              .catch(() =>
+                                notify("Select and copy the invitation above."),
+                              )
                           }
                         >
                           <Copy size={15} /> Copy iPad link
@@ -4121,17 +4268,17 @@ export default function App() {
                     )}
                     <label>
                       Private invitation
-                      <input readOnly value={invite} />
+                      <input
+                        aria-label="Private invitation"
+                        readOnly
+                        value={invite}
+                        onFocus={(e) => e.target.select()}
+                      />
                     </label>
                     <button
                       onClick={() =>
-                        void navigator.clipboard
-                          .writeText(invite)
-                          .then(() =>
-                            notify(
-                              "Invitation copied. Send it to your lesson partner.",
-                            ),
-                          )
+                        void copyInvitation(invite)
+                          .then(() => notify("Invitation copied."))
                           .catch(() =>
                             notify("Select and copy the invitation above."),
                           )
@@ -4166,7 +4313,7 @@ export default function App() {
                 )}
               </div>
             </div>
-            {paired && (
+            {paired && !tablet && (
               <div className="row">
                 <button
                   onClick={() => void joinPartner()}

@@ -13,7 +13,7 @@ test.afterEach(async () => {
 test.afterAll(async () => {
   await relay.close();
 });
-async function blankPage(browser: Browser) {
+async function blankPage(browser: Browser, details = true) {
   const context = await browser.newContext({
     viewport: { width: 1440, height: 960 },
     permissions: ["microphone"],
@@ -46,6 +46,10 @@ async function blankPage(browser: Browser) {
   await expect(
     page.getByRole("button", { name: "Share / Sync" }),
   ).toBeVisible();
+  if (details)
+    await page
+      .getByRole("button", { name: "Show details", exact: true })
+      .click();
   return page;
 }
 test("shared lesson keeps separate Chinese/Jyutping views, word edits and practice mode", async ({
@@ -189,17 +193,16 @@ test("touchpad zoom and card deletion work; backup restores as a new lesson", as
   await expect(page.getByTestId("phrase-card")).toHaveCount(0);
 });
 
-test("temporary inspector, compact hover cards, clean split/merge editor and vocabulary notes", async ({
+test("manual inspector, compact hover cards, clean split/merge editor and vocabulary notes", async ({
   browser,
 }) => {
-  const page = await blankPage(browser);
+  const page = await blankPage(browser, false);
   await page.getByRole("button", { name: "Natasha", exact: true }).click();
   await page.getByLabel("Cantonese phrase").fill("圖書館");
   await page.getByRole("button", { name: "Add phrase", exact: true }).click();
   const card = page.getByTestId("phrase-card");
-  await page.getByRole("button", { name: "Hide details" }).click();
   await card.click();
-  await expect(page.locator(".inspector")).toBeVisible();
+  await expect(page.locator(".inspector")).toHaveCount(0);
   await page.locator(".canvas-viewport").click({ position: { x: 15, y: 20 } });
   await expect(page.locator(".inspector")).toHaveCount(0);
   await page.getByRole("button", { name: "Show details" }).click();
@@ -334,8 +337,8 @@ test("partners see animal cursors, find each other and follow presenter zoom and
   await learner
     .locator(".canvas-viewport")
     .hover({ position: { x: 90, y: 100 } });
-  await expect(learner.locator(".remote-cursor strong")).toHaveText("🐻");
-  await expect(teacher.locator(".remote-cursor strong")).toHaveText("🦝");
+  await expect(learner.locator(".remote-cursor strong")).toHaveText("🦝");
+  await expect(teacher.locator(".remote-cursor strong")).toHaveText("🐻");
   await teacher.getByRole("button", { name: "Guide Leif" }).click();
   await expect(learner.locator(".follow-banner")).toContainText(
     "Following Natasha",
@@ -941,4 +944,64 @@ test("the three modes also govern table meanings and individual conversation-bub
   await conversation.getByLabel("Dialogue Jyutping").first().click();
   await expect(page.locator(".row-detail")).not.toContainText("English");
   await expect(page.getByLabel("Piece 1 meaning")).toHaveCount(0);
+});
+
+test("card modes share typography, release unused height, and conversation favourites share the normal tray", async ({
+  browser,
+}) => {
+  const page = await blankPage(browser, false);
+  await page.getByRole("button", { name: "Natasha", exact: true }).click();
+  await page.getByLabel("Cantonese phrase").fill("你好");
+  await page.getByRole("button", { name: "Add phrase", exact: true }).click();
+  const phrase = page.getByTestId("phrase-card");
+  await expect(page.locator(".inspector")).toHaveCount(0);
+  await page.getByRole("button", { name: "Show details", exact: true }).click();
+  await page.getByRole("button", { name: "Save phrase", exact: true }).click();
+  await page.getByLabel("Selected card mode").selectOption("peek");
+  const compact = await phrase
+    .locator("h2")
+    .evaluate((el) => ({
+      size: getComputedStyle(el).fontSize,
+      weight: getComputedStyle(el).fontWeight,
+      font: getComputedStyle(el).fontFamily,
+    }));
+  const compactHeight = (await phrase.boundingBox())!.height;
+  await page.getByLabel("Selected card mode").selectOption("practice");
+  expect(
+    await phrase
+      .locator("h2")
+      .evaluate((el) => ({
+        size: getComputedStyle(el).fontSize,
+        weight: getComputedStyle(el).fontWeight,
+        font: getComputedStyle(el).fontFamily,
+      })),
+  ).toEqual(compact);
+  expect((await phrase.boundingBox())!.height).toBeCloseTo(compactHeight, 0);
+  await page.getByLabel("Selected card mode").selectOption("full");
+  expect((await phrase.boundingBox())!.height).toBeGreaterThan(compactHeight);
+  await page
+    .getByRole("button", { name: "Add conversation", exact: true })
+    .click();
+  const conversation = page.getByTestId("conversation-card");
+  await expect(conversation.locator(".dialogue-bubble").first()).toHaveCSS(
+    "background-color",
+    "rgb(237, 245, 255)",
+  );
+  await expect(conversation.locator(".dialogue-bubble").last()).toHaveCSS(
+    "background-color",
+    "rgb(255, 240, 242)",
+  );
+  await conversation.getByLabel("Dialogue Cantonese").first().fill("飲水");
+  await conversation
+    .getByRole("button", { name: "Save bubble", exact: true })
+    .first()
+    .click();
+  await expect(page.locator(".tray-item")).toHaveCount(2);
+  await conversation.getByLabel("Bubble options").first().click();
+  await expect(
+    conversation.getByRole("button", { name: "Send to JyutDeck", exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "Send bubble to JyutDeck", exact: true }),
+  ).toHaveCount(0);
 });

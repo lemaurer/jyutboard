@@ -90,7 +90,12 @@ test("installed web app reopens local lessons offline and keeps capabilities/API
     await expect(page.getByTestId("phrase-card").locator("h2")).toHaveText(
       "你好",
     );
-    await expect(page.locator(".tablet-join")).toBeVisible();
+    await page.getByRole("button", { name: "Share / Sync" }).click();
+    await expect(
+      page
+        .getByRole("dialog", { name: "Share lesson" })
+        .getByRole("button", { name: "Join Leif", exact: true }),
+    ).toBeVisible();
   } finally {
     await context.close();
   }
@@ -198,7 +203,7 @@ test("Home Screen installation restores the room and Natasha view from Safari's 
     const home = await installed.newPage();
     await home.goto(origin);
     await expect(home.getByLabel("Your lesson view")).toHaveValue("teacher");
-    await expect(home.locator(".tablet-join")).toHaveText("Join Leif");
+    await expect(home.locator(".tablet-join")).toHaveCount(0);
     await expect(
       home.getByRole("dialog", { name: "Share lesson" }),
     ).toHaveCount(0);

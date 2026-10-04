@@ -56,7 +56,7 @@ export function DrawingLayer({
         </g>
       ))}
       {strokes.map((stroke) => (
-        <g key={stroke.id} data-testid="drawing">
+        <g key={stroke.id} data-testid="drawing" data-stroke-id={stroke.id}>
           {!stroke.arrow && (
             <InkPath stroke={stroke} selected={selected.has(stroke.id)} />
           )}

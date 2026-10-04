@@ -180,6 +180,12 @@ export function patchCard(doc: Y.Doc, id: string, patch: Partial<Card>) {
   const map = doc.getMap<Y.Map<unknown>>("cards").get(id);
   if (map)
     doc.transact(() => {
+      if (
+        patch.mode &&
+        patch.mode !== map.get("mode") &&
+        map.get("kind") === "phrase"
+      )
+        map.set("height", 0);
       for (const [key, value] of Object.entries(patch))
         if (value !== undefined) map.set(key, value);
     });

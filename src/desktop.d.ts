@@ -3,6 +3,7 @@ declare global {
   interface Window {
     desktop?: {
       web?: boolean;
+      copyText?: (text: string) => Promise<boolean>;
       vocabulary: () => Promise<{
         known: string[];
         queued: string[];

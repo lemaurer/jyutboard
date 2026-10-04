@@ -25,11 +25,42 @@ export function registerPWA() {
     (navigator as Navigator & { standalone?: boolean }).standalone
   )
     void navigator.storage?.persist?.().catch(() => {});
-  const resize = () =>
-    document.documentElement.style.setProperty(
-      "--usable-height",
-      `${window.visualViewport?.height || window.innerHeight}px`,
-    );
-  window.visualViewport?.addEventListener("resize", resize);
-  resize();
+}
+/** Safari's keyboard changes both the visual viewport size and its origin. */
+export function installTabletViewport() {
+  if (!window.desktop?.web) return;
+  const vv = window.visualViewport;
+  let frame = 0;
+  const update = () => {
+    cancelAnimationFrame(frame);
+    frame = requestAnimationFrame(() => {
+      const style = document.documentElement.style;
+      style.setProperty("--usable-height", `${vv?.height || innerHeight}px`);
+      style.setProperty("--usable-width", `${vv?.width || innerWidth}px`);
+      style.setProperty("--viewport-top", `${vv?.offsetTop || 0}px`);
+      style.setProperty("--viewport-left", `${vv?.offsetLeft || 0}px`);
+      document.documentElement.classList.toggle(
+        "keyboard-open",
+        (vv?.height || innerHeight) < innerHeight - 120,
+      );
+      requestAnimationFrame(() => {
+        const input = document.activeElement as HTMLElement | null;
+        const canvas = document.querySelector<HTMLElement>(".canvas-viewport");
+        if (!input?.matches("input,textarea") || !canvas?.contains(input))
+          return;
+        const box = input.getBoundingClientRect(),
+          area = canvas.getBoundingClientRect();
+        if (box.bottom > area.bottom - 16)
+          canvas.scrollTop += box.bottom - area.bottom + 16;
+        else if (box.top < area.top + 16)
+          canvas.scrollTop += box.top - area.top - 16;
+      });
+    });
+  };
+  vv?.addEventListener("resize", update);
+  vv?.addEventListener("scroll", update);
+  window.addEventListener("resize", update);
+  document.addEventListener("focusin", update);
+  document.addEventListener("focusout", update);
+  update();
 }

@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer } from "electron";
 contextBridge.exposeInMainWorld("desktop", {
+  copyText: (text: string) => ipcRenderer.invoke("clipboard:write", text),
   vocabulary: () => ipcRenderer.invoke("board:vocabulary"),
   transcribe: (audio: string) => ipcRenderer.invoke("board:transcribe", audio),
   pair: (value: unknown) => ipcRenderer.invoke("board:pair", value),

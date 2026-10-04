@@ -7,6 +7,7 @@ import {
   session,
   systemPreferences,
   dialog,
+  clipboard,
 } from "electron";
 import { join } from "node:path";
 import { readFile, writeFile, rename } from "node:fs/promises";
@@ -89,6 +90,12 @@ app.whenReady().then(async () => {
     trusted(event);
     secrets = {};
     await writeFile(join(app.getPath("userData"), "settings.enc"), "");
+    return true;
+  });
+  ipcMain.handle("clipboard:write", (event, text) => {
+    trusted(event);
+    const value = z.string().min(1).max(5000).parse(text);
+    clipboard.writeText(value);
     return true;
   });
   ipcMain.handle("relay:start", async (event) => {

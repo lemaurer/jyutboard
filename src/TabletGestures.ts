@@ -11,9 +11,16 @@ export class TabletGestures {
     private read: () => View,
     private write: (view: View) => void,
     private tool: () => string,
+    private manipulate: (event: PointerEvent) => boolean = () => false,
   ) {}
+  get navigationActive() {
+    return this.navigating && !this.pen;
+  }
   down(event: PointerEvent): boolean {
     if (event.pointerType === "pen") {
+      this.contacts.clear();
+      this.navigating = false;
+      this.previous = undefined;
       this.pen = true;
       return false;
     }
@@ -22,18 +29,15 @@ export class TabletGestures {
       return true;
     }
     if (
-      (event.target as Element).closest(
-        "input,textarea,button,select,summary",
-      ) &&
+      (event.target as Element).closest("button,select,summary") &&
       !this.contacts.size
     )
       return false;
     this.contacts.set(event.pointerId, { x: event.clientX, y: event.clientY });
     this.navigating ||=
       this.contacts.size > 1 ||
-      ["draw", "highlight", "arrow", "erase", "laser", "pan"].includes(
-        this.tool(),
-      );
+      (!this.manipulate(event) &&
+        ["draw", "highlight", "arrow", "pan"].includes(this.tool()));
     this.previous = this.center();
     if (this.navigating) this.viewport.setPointerCapture(event.pointerId);
     return this.navigating;

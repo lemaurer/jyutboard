@@ -1,6 +1,6 @@
 import type { Card, TableRow } from "./model";
 import { PersonAvatar, PERSONAS, AVATARS } from "./PersonAvatar";
-import { Plus, Star, X, Send, MoreHorizontal, Volume2 } from "lucide-react";
+import { Plus, Star, X, MoreHorizontal, Volume2 } from "lucide-react";
 export function Conversation({
   card,
   teacher,
@@ -11,7 +11,6 @@ export function Conversation({
   onAdd,
   onDelete,
   onSelect,
-  onSend,
 }: {
   card: Card;
   teacher: boolean;
@@ -22,7 +21,6 @@ export function Conversation({
   onAdd: () => void;
   onDelete: (row: TableRow) => void;
   onSelect: (row: TableRow) => void;
-  onSend: (row: TableRow) => void;
 }) {
   return (
     <div className="conversation-turns">
@@ -168,13 +166,6 @@ export function Conversation({
                       <option value="practice">Practice</option>
                     </select>
                   </label>
-                  <button
-                    disabled={!row.chinese.trim()}
-                    onClick={() => onSend(row)}
-                  >
-                    <Send size={12} />
-                    Send to JyutDeck
-                  </button>
                   {row.receipt && (
                     <small className="receipt">{row.receipt}</small>
                   )}

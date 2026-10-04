@@ -3029,3 +3029,151 @@ summary > svg,
     display: block;
   }
 }
+
+/* Stable tablet viewport and direct manipulation. */
+.lasso-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 22;
+  pointer-events: none;
+}
+.phrase-card.mode-peek,
+.phrase-card.mode-practice {
+  border-radius: 8px;
+}
+.phrase-card.mode-peek h2,
+.phrase-card.mode-practice h2 {
+  padding: 0;
+  font-weight: 650;
+  font-size: 23px;
+  line-height: 1.4;
+}
+.phrase-card.mode-peek h2.card-chinese,
+.phrase-card.mode-practice h2.card-chinese {
+  font-size: 27px;
+  letter-spacing: 1px;
+}
+.phrase-card.mode-peek h2.card-jyutping,
+.phrase-card.mode-practice h2.card-jyutping {
+  font-family: inherit;
+}
+.phrase-card.mode-peek .card-footer,
+.phrase-card.mode-practice .card-footer {
+  display: none;
+}
+.dialogue-bubble {
+  background: var(--card-fill, #edf5ff);
+}
+.turn-right .dialogue-bubble {
+  background: var(--card-fill, #fff0f2);
+}
+.remote-cursor .cursor-name {
+  display: block;
+  margin: 0;
+  padding: 0;
+  background: none;
+  color: #66768d;
+  font-size: 10px;
+  line-height: 1.3;
+}
+.remote-cursor > strong {
+  display: block;
+  line-height: 1;
+  background: none;
+}
+@media (pointer: coarse) {
+  .composer-controls {
+    display: none;
+  }
+  .tablet-canvas.tool-draw .board-card.selected,
+  .tablet-canvas.tool-highlight .board-card.selected,
+  .tablet-canvas.tool-arrow .board-card.selected,
+  .tablet-canvas.tool-erase .board-card.selected {
+    pointer-events: auto;
+  }
+  .tablet-canvas .board-card {
+    touch-action: none;
+  }
+  .canvas-viewport {
+    min-height: 0;
+    overflow-anchor: none;
+  }
+  .main,
+  .workspace,
+  .canvas-column {
+    min-height: 0;
+  }
+  .composer {
+    flex-shrink: 0;
+  }
+  .web-client .app {
+    position: fixed;
+    top: var(--viewport-top, 0px);
+    left: var(--viewport-left, 0px);
+    width: var(--usable-width, 100%);
+    height: var(--usable-height, 100dvh);
+  }
+  .web-client body {
+    overscroll-behavior: none;
+  }
+  .keyboard-open .canvas-bottom {
+    display: none;
+  }
+  .keyboard-open .topbar {
+    flex-wrap: nowrap;
+  }
+  .keyboard-open .lesson-name {
+    max-width: 140px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .keyboard-open .canvas-actions {
+    padding-top: 2px;
+    padding-bottom: 2px;
+  }
+  .keyboard-open .canvas-actions button {
+    height: 38px;
+  }
+  .inspector {
+    top: var(--details-top, 108px);
+    bottom: auto;
+    max-height: calc(
+      var(--usable-height, 100dvh) - var(--details-top, 108px) +
+        var(--viewport-top, 0px) - 64px
+    );
+  }
+  .web-client .overlay {
+    position: fixed;
+    inset: auto;
+    top: var(--viewport-top, 0px);
+    left: var(--viewport-left, 0px);
+    width: var(--usable-width, 100%);
+    height: var(--usable-height, 100dvh);
+  }
+  .modal input,
+  .modal textarea,
+  .board-card input,
+  .board-card textarea,
+  .composer textarea {
+    font-size: 16px;
+  }
+}
+
+.phrase-card.mode-peek,
+.phrase-card.mode-practice {
+  width: max-content;
+  max-width: 1400px;
+  overflow: visible;
+}
+.phrase-card.mode-peek {
+  background: var(--card-fill, transparent) !important;
+}
+.phrase-card.mode-peek h2,
+.phrase-card.mode-practice h2 {
+  font-size: calc(19px * var(--text-scale, 1));
+}
+.phrase-card.mode-peek h2.card-chinese,
+.phrase-card.mode-practice h2.card-chinese {
+  font-size: calc(24px * var(--text-scale, 1));
+}

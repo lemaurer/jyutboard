@@ -9,7 +9,7 @@ if (!binary || !encryptedSettings || !syntheticAudio)
     "Provide a packaged Mac executable, configured encrypted settings file, and synthetic Cantonese audio.",
   );
 const directory = await mkdtemp(join(tmpdir(), "jyutboard-ipad-host-"));
-let host, browser;
+let host, browser, previousClipboard;
 try {
   // The settings remain OS-encrypted; no plaintext credential enters this script.
   await copyFile(encryptedSettings, join(directory, "settings.enc"));
@@ -18,6 +18,9 @@ try {
     args: [`--user-data-dir=${directory}`],
     timeout: 30000,
   });
+  previousClipboard = await host.evaluate(({ clipboard }) =>
+    clipboard.readText(),
+  );
   const teacher = await host.firstWindow();
   expect(
     (await teacher.evaluate(() => window.desktop.getSettings())).hasQueueToken,
@@ -31,6 +34,12 @@ try {
     timeout: 75000,
   });
   const invitation = await teacher.getByLabel("iPad invitation").inputValue();
+  await teacher
+    .getByRole("button", { name: "Copy iPad link", exact: true })
+    .click();
+  expect(await host.evaluate(({ clipboard }) => clipboard.readText())).toBe(
+    invitation,
+  );
   const room = new URLSearchParams(new URL(invitation).hash.slice(1)).get(
     "room",
   );
@@ -46,7 +55,13 @@ try {
     hasTouch: true,
   });
   const ipad = await context.newPage();
-  ipad.on("console", message => { if (message.type() === "error") console.log("WebKit:", message.text().replace(/wss?:\/\/[^\s]+/g, "[relay]")); });
+  ipad.on("console", (message) => {
+    if (message.type() === "error")
+      console.log(
+        "WebKit:",
+        message.text().replace(/wss?:\/\/[^\s]+/g, "[relay]"),
+      );
+  });
   console.log("Checking public Internet relay…");
   await ipad.goto(invitation);
   await expect(ipad.getByText("2 live")).toBeVisible({ timeout: 90000 });
@@ -106,12 +121,22 @@ try {
   await expect(ipad.getByTestId("phrase-card").locator("h2")).toHaveText(
     "你好",
   );
-  await expect(ipad.locator(".tablet-join")).toHaveText("Join Leif");
+  await ipad.getByRole("button", { name: "Share / Sync" }).click();
+  await expect(
+    ipad.getByRole("button", { name: "Join Leif", exact: true }),
+  ).toBeVisible();
   console.log(
     "PASS: packaged desktop ↔ hosted iPad/WebKit through Internet relay; shared edits, small Chinese, remembered room, real vocabulary, real synthetic Cantonese transcription and authenticated no-write queue validation.",
   );
 } finally {
   await browser?.close();
+  if (host && previousClipboard !== undefined)
+    await host
+      .evaluate(
+        ({ clipboard }, text) => clipboard.writeText(text),
+        previousClipboard,
+      )
+      .catch(() => {});
   await host?.close();
   await rm(directory, { recursive: true, force: true });
 }

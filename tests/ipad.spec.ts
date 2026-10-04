@@ -54,18 +54,16 @@ async function pointer(
   pointerType = "touch",
   pressure = 0.5,
 ) {
-  await page
-    .locator(".canvas")
-    .dispatchEvent(type, {
-      pointerId: id,
-      pointerType,
-      clientX: x,
-      clientY: y,
-      pressure,
-      bubbles: true,
-      buttons: type === "pointerup" ? 0 : 1,
-      isPrimary: id === 1,
-    });
+  await page.locator(".canvas").dispatchEvent(type, {
+    pointerId: id,
+    pointerType,
+    clientX: x,
+    clientY: y,
+    pressure,
+    bubbles: true,
+    buttons: type === "pointerup" ? 0 : 1,
+    isPrimary: id === 1,
+  });
 }
 test("iPad first join has no hosting or credentials; invitation remembers a shared role-specific lesson", async () => {
   const { page, context } = await tablet();
@@ -90,9 +88,8 @@ test("iPad first join has no hosting or credentials; invitation remembers a shar
       .click();
     await expect(page.getByLabel("Your lesson view")).toHaveValue("teacher");
     await expect(page.locator(".sidebar")).toHaveCount(0);
-    await expect(
-      page.getByRole("button", { name: "Join Leif", exact: true }),
-    ).toBeVisible();
+    await expect(page.locator(".tablet-join")).toHaveCount(0);
+    await expect(page.locator(".composer-controls")).not.toBeVisible();
     await page.getByLabel("Cantonese phrase").fill("我想飲水");
     await page.getByRole("button", { name: "Add phrase", exact: true }).click();
     const card = page.getByTestId("phrase-card");
@@ -114,10 +111,10 @@ test("iPad first join has no hosting or credentials; invitation remembers a shar
     await expect(page.getByTestId("phrase-card").locator("h2")).toContainText(
       "ngo5",
     );
+    await page.getByRole("button", { name: "Share / Sync" }).click();
     await expect(
       page.getByRole("button", { name: "Join Natasha", exact: true }),
     ).toBeVisible();
-    await page.getByRole("button", { name: "Share / Sync" }).click();
     await expect(
       page.getByText("Add to Home Screen", { exact: false }),
     ).toBeVisible();
@@ -166,7 +163,7 @@ test("Pencil draws pressure-sensitive ink, a resting finger makes no marks and f
       .locator(".canvas")
       .evaluate((el) => getComputedStyle(el).transform);
     await page
-      .getByRole("button", { name: "Select and move", exact: true })
+      .getByRole("button", { name: "Lasso selection", exact: true })
       .click();
     await pointer(page, "pointerdown", 4, x, y);
     await pointer(page, "pointerdown", 5, x + 100, y);
@@ -232,5 +229,201 @@ test("browser participant shares edits, conversation bubbles and attached audio 
   } finally {
     await a.context.close();
     await b.context.close();
+  }
+});
+
+test("iPad lasso selects a group and drags it without scrolling or opening details; pinch still works", async () => {
+  const { page, context } = await tablet();
+  try {
+    await page.goto(
+      `/#room=${"f".repeat(48)}&relay=${encodeURIComponent(`ws://127.0.0.1:${relay.port}`)}`,
+    );
+    await page.getByLabel("Your lesson view").selectOption("teacher");
+    for (const text of ["你好", "飲水"]) {
+      await page.getByLabel("Cantonese phrase").fill(text);
+      await page
+        .getByRole("button", { name: "Add phrase", exact: true })
+        .click();
+    }
+    await page
+      .getByRole("button", { name: "Lasso selection", exact: true })
+      .click();
+    const cards = page.getByTestId("phrase-card");
+    const boxes = await cards.evaluateAll((nodes) =>
+      nodes.map((el) => {
+        const r = el.getBoundingClientRect();
+        return { x: r.x, y: r.y, w: r.width, h: r.height };
+      }),
+    );
+    const x = Math.min(...boxes.map((b) => b.x)) - 8,
+      y = Math.min(...boxes.map((b) => b.y)) - 8;
+    const right = Math.max(...boxes.map((b) => b.x + b.w)) + 8,
+      bottom = Math.max(...boxes.map((b) => b.y + b.h)) + 8;
+    await pointer(page, "pointerdown", 10, x, y);
+    for (const [px, py] of [
+      [right, y],
+      [right, bottom],
+      [x, bottom],
+      [x, y],
+    ])
+      await pointer(page, "pointermove", 10, px, py);
+    await pointer(page, "pointerup", 10, x, y);
+    await expect(page.locator(".phrase-card.selected")).toHaveCount(2);
+    await expect(page.locator(".inspector")).toHaveCount(0);
+    const before = await cards.evaluateAll((nodes) =>
+      nodes.map((el) => parseFloat((el as HTMLElement).style.left)),
+    );
+    const scroll = await page
+      .locator(".canvas-viewport")
+      .evaluate((el) => ({ x: el.scrollLeft, y: el.scrollTop }));
+    const box = (await cards.first().boundingBox())!;
+    // Drag a selected object without changing away from the Pencil tool.
+    await page.getByRole("button", { name: "Draw", exact: true }).click();
+    await cards.first().dispatchEvent("pointerdown", {
+      pointerId: 11,
+      pointerType: "touch",
+      clientX: box.x + 30,
+      clientY: box.y + 25,
+      bubbles: true,
+      buttons: 1,
+    });
+    await pointer(page, "pointermove", 11, box.x + 70, box.y + 45);
+    await pointer(page, "pointerup", 11, box.x + 70, box.y + 45);
+    const after = await cards.evaluateAll((nodes) =>
+      nodes.map((el) => parseFloat((el as HTMLElement).style.left)),
+    );
+    expect(after[0] - before[0]).toBeCloseTo(40, 0);
+    expect(after[1] - before[1]).toBeCloseTo(40, 0);
+    expect(
+      await page
+        .locator(".canvas-viewport")
+        .evaluate((el) => ({ x: el.scrollLeft, y: el.scrollTop })),
+    ).toEqual(scroll);
+    await expect(page.getByTestId("drawing")).toHaveCount(0);
+    await page.getByRole("button", { name: "Undo", exact: true }).click();
+    expect(
+      await cards.evaluateAll((nodes) =>
+        nodes.map((el) => parseFloat((el as HTMLElement).style.left)),
+      ),
+    ).toEqual(before);
+    const selectedBox = (await cards.first().boundingBox())!;
+    await cards
+      .first()
+      .dispatchEvent("pointerdown", {
+        pointerId: 20,
+        pointerType: "pen",
+        clientX: selectedBox.x + 20,
+        clientY: selectedBox.y + 15,
+        bubbles: true,
+        buttons: 1,
+        pressure: 0.3,
+      });
+    await pointer(
+      page,
+      "pointermove",
+      20,
+      selectedBox.x + 70,
+      selectedBox.y + 20,
+      "pen",
+      0.8,
+    );
+    await pointer(
+      page,
+      "pointerup",
+      20,
+      selectedBox.x + 70,
+      selectedBox.y + 20,
+      "pen",
+    );
+    await expect(page.getByTestId("drawing")).toHaveCount(1);
+    const initial = await page
+      .locator(".canvas")
+      .evaluate((el) => getComputedStyle(el).transform);
+    await pointer(page, "pointerdown", 12, 400, 350);
+    await pointer(page, "pointerdown", 13, 500, 350);
+    await pointer(page, "pointermove", 13, 560, 350);
+    await pointer(page, "pointerup", 13, 560, 350);
+    await pointer(page, "pointerup", 12, 400, 350);
+    await expect
+      .poll(() =>
+        page
+          .locator(".canvas")
+          .evaluate((el) => getComputedStyle(el).transform),
+      )
+      .not.toBe(initial);
+  } finally {
+    await context.close();
+  }
+});
+
+test("Safari keyboard resize and offset keep the composer and modal in the visible viewport", async () => {
+  const { page, context } = await tablet();
+  try {
+    await page.addInitScript(() => {
+      const viewport = new EventTarget();
+      Object.assign(viewport, {
+        height: 768,
+        width: 1024,
+        offsetTop: 0,
+        offsetLeft: 0,
+      });
+      Object.defineProperty(window, "visualViewport", {
+        value: viewport,
+        configurable: true,
+      });
+      (window as any).__viewport = viewport;
+    });
+    await page.goto(
+      `/#room=${"e".repeat(48)}&relay=${encodeURIComponent(`ws://127.0.0.1:${relay.port}`)}`,
+    );
+    await page.getByLabel("Your lesson view").selectOption("teacher");
+    await page.getByLabel("Cantonese phrase").fill("你好");
+    await page.getByRole("button", { name: "Add phrase", exact: true }).click();
+    await page
+      .getByRole("button", { name: "Edit text in place", exact: true })
+      .click();
+    await expect(page.getByLabel("Edit phrase in place")).toBeFocused();
+    await page.evaluate(() => {
+      const v = (window as any).__viewport;
+      v.height = 410;
+      v.offsetTop = 84;
+      v.dispatchEvent(new Event("resize"));
+      v.dispatchEvent(new Event("scroll"));
+    });
+    await expect(page.locator(".app")).toHaveCSS("height", "410px");
+    await expect(page.locator(".app")).toHaveCSS("top", "84px");
+    await expect
+      .poll(async () => {
+        const field = (await page
+          .getByLabel("Edit phrase in place")
+          .boundingBox())!;
+        const canvas = (await page.locator(".canvas-viewport").boundingBox())!;
+        return (
+          field.y >= canvas.y &&
+          field.y + field.height <= canvas.y + canvas.height
+        );
+      })
+      .toBe(true);
+    await page.getByLabel("Cantonese phrase").focus();
+    const composer = (await page.locator(".composer").boundingBox())!;
+    expect(composer.y + composer.height).toBeLessThanOrEqual(494);
+    await expect(page.locator(".composer-controls")).not.toBeVisible();
+    await expect(page.locator(".canvas-viewport")).toBeVisible();
+    await page.getByRole("button", { name: "Share / Sync" }).click();
+    await page.getByLabel("Lesson invitation").focus();
+    const modal = (await page
+      .getByRole("dialog", { name: "Share lesson" })
+      .boundingBox())!;
+    expect(modal.y).toBeGreaterThanOrEqual(84);
+    expect(modal.y + modal.height).toBeLessThanOrEqual(494);
+    await page.evaluate(() => {
+      const v = (window as any).__viewport;
+      v.height = 768;
+      v.offsetTop = 0;
+      v.dispatchEvent(new Event("resize"));
+    });
+    await expect(page.locator(".app")).toHaveCSS("height", "768px");
+  } finally {
+    await context.close();
   }
 });
