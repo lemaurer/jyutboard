@@ -21,6 +21,8 @@ export async function startRelay(port = 47831, host = "0.0.0.0") {
     maxPayload: 30 * 1024 * 1024,
     perMessageDeflate: false,
   });
+  // HTTP bind errors are forwarded by ws; the listen promise reports them.
+  wss.on("error", () => {});
   wss.on("connection", (socket) => {
     let room: ReturnType<typeof rooms.get>;
     let id = "";
@@ -145,13 +147,19 @@ export async function startRelay(port = 47831, host = "0.0.0.0") {
       }
   }, 60000);
   cleanup.unref();
-  await new Promise<void>((resolve, reject) => {
-    server.once("error", reject);
-    server.listen(port, host, () => {
-      server.off("error", reject);
-      resolve();
+  try {
+    await new Promise<void>((resolve, reject) => {
+      server.once("error", reject);
+      server.listen(port, host, () => {
+        server.off("error", reject);
+        resolve();
+      });
     });
-  });
+  } catch (error) {
+    clearInterval(cleanup);
+    wss.close(() => {});
+    throw error;
+  }
   return {
     port: (server.address() as { port: number }).port,
     close: async () => {

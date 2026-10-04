@@ -4308,12 +4308,12 @@ export default function App() {
                   <p className="install-tip">
                     In Safari, tap Share → Add to Home Screen to install
                     JyutBoard. Pencil draws; fingers pan in drawing tools. Use
-                    Select to move cards or select a group.
+                    Lasso to circle cards or ink, then drag the selection.
                   </p>
                 )}
               </div>
             </div>
-            {paired && !tablet && (
+            {paired && (
               <div className="row">
                 <button
                   onClick={() => void joinPartner()}

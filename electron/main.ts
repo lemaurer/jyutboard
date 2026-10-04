@@ -19,6 +19,15 @@ import { z } from "zod";
 let window: BrowserWindow | null = null;
 let relay: Awaited<ReturnType<typeof startRelay>> | undefined;
 let tunnel: ChildProcessWithoutNullStreams | undefined;
+async function startDesktopRelay() {
+  try {
+    return await startRelay();
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "EADDRINUSE") throw error;
+    // Another open build can own the usual port; invitations use the real port.
+    return startRelay(0);
+  }
+}
 let remoteAddress = "";
 let secrets: Record<string, string> = {};
 const settingsSchema = z
@@ -100,7 +109,7 @@ app.whenReady().then(async () => {
   });
   ipcMain.handle("relay:start", async (event) => {
     trusted(event);
-    relay ??= await startRelay();
+    relay ??= await startDesktopRelay();
     const ips = Object.values(networkInterfaces())
       .flat()
       .filter((x) => x?.family === "IPv4" && !x.internal)
@@ -111,7 +120,7 @@ app.whenReady().then(async () => {
     trusted(event);
     if (remoteAddress && tunnel?.exitCode === null)
       return { url: remoteAddress };
-    relay ??= await startRelay();
+    relay ??= await startDesktopRelay();
     const binaryName =
       process.platform === "win32" ? "cloudflared.exe" : "cloudflared";
     const bundled = join(

@@ -43,3 +43,18 @@ test("changing a phrase mode releases its manually enlarged height without losin
   assert.equal(readCards(doc)[0].textScale, 1.3);
   doc.destroy();
 });
+
+test("a busy relay port rejects cleanly instead of emitting an uncaught WebSocket server error", async () => {
+  const { startRelay } = await import("../electron/relay-server");
+  const owner = await startRelay(0, "127.0.0.1");
+  try {
+    await assert.rejects(() => startRelay(owner.port, "127.0.0.1"), {
+      code: "EADDRINUSE",
+    });
+    const alternate = await startRelay(0, "127.0.0.1");
+    assert.notEqual(alternate.port, owner.port);
+    await alternate.close();
+  } finally {
+    await owner.close();
+  }
+});
