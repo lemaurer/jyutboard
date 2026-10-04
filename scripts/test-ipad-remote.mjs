@@ -28,7 +28,7 @@ try {
     .getByRole("button", { name: "Start internet lesson", exact: true })
     .click();
   await expect(teacher.getByLabel("iPad invitation")).toBeVisible({
-    timeout: 45000,
+    timeout: 75000,
   });
   const invitation = await teacher.getByLabel("iPad invitation").inputValue();
   const room = new URLSearchParams(new URL(invitation).hash.slice(1)).get(
@@ -46,8 +46,10 @@ try {
     hasTouch: true,
   });
   const ipad = await context.newPage();
+  ipad.on("console", message => { if (message.type() === "error") console.log("WebKit:", message.text().replace(/wss?:\/\/[^\s]+/g, "[relay]")); });
+  console.log("Checking public Internet relay…");
   await ipad.goto(invitation);
-  await expect(ipad.getByText("2 live")).toBeVisible({ timeout: 30000 });
+  await expect(ipad.getByText("2 live")).toBeVisible({ timeout: 90000 });
   await teacher.getByLabel("Cantonese phrase").fill("我想飲水");
   await teacher
     .getByRole("button", { name: "Add phrase", exact: true })
