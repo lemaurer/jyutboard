@@ -2,7 +2,9 @@
 
 A live teaching canvas for learning Cantonese together. Natasha writes naturally in Chinese; Leif sees Jyutping first. Both views share movable phrase cards, dense phrase tables, notes, drawings, pronunciation recordings, and a session tray.
 
-**[Download for Mac](../../releases/latest)** · Windows installers are available in each GitHub Actions build and in tagged releases.
+**[Download for Mac](../../releases/latest)** · **[Download for Windows](https://github.com/lemaurer/jyutboard/releases/latest/download/JyutBoard-Setup.exe)**
+
+The Windows button downloads the latest installer directly. A portable build is also published as `JyutBoard-Portable.exe` in each tagged release.
 
 ![JyutBoard teaching desk](docs/teaching-desk.png)
 
@@ -97,7 +99,7 @@ npm run check
 npm run dist:win
 ```
 
-The Windows installer and portable build appear in `release/`. GitHub Actions builds Mac and Windows packages separately. Create a version tag such as `v0.5.1` to publish downloadable installers on the GitHub Releases page. CI builds are not code signed. Windows SmartScreen may require **More info → Run anyway**.
+The Windows installer and portable build appear in `release/` as `JyutBoard-Setup.exe` and `JyutBoard-Portable.exe`. GitHub Actions builds Mac and Windows packages separately. Create a version tag such as `v0.5.1` to publish them on the GitHub Releases page; the README's Windows button then always points directly to the latest installer. CI builds are not code signed. Windows SmartScreen may require **More info → Run anyway**.
 
 ## Relay on a small Linux host
 
