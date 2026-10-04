@@ -31,6 +31,9 @@ async function loadSecrets() {
   try {
     const raw = await readFile(join(app.getPath("userData"), "settings.enc"));
     secrets = JSON.parse(safeStorage.decryptString(raw));
+    if (secrets.queueUrl === "https://jyutdeck.vercel.app/api/v1/requests")
+      secrets.queueUrl =
+        "https://jyutdeck-live-jul08f.vercel.app/api/v1/requests";
   } catch {
     secrets = {};
   }
@@ -53,7 +56,8 @@ app.whenReady().then(async () => {
     trusted(event);
     return {
       queueUrl:
-        secrets.queueUrl || "https://jyutdeck.vercel.app/api/v1/requests",
+        secrets.queueUrl ||
+        "https://jyutdeck-live-jul08f.vercel.app/api/v1/requests",
       hasQueueToken: Boolean(secrets.queueToken),
       hasGoogleKey: Boolean(secrets.googleKey),
     };
@@ -69,6 +73,7 @@ app.whenReady().then(async () => {
         "OS credential encryption is unavailable. Settings were not saved.",
       );
     secrets = {
+      ...secrets,
       queueUrl: value.queueUrl,
       queueToken: value.queueToken || secrets.queueToken || "",
       googleKey: value.googleKey || secrets.googleKey || "",
@@ -217,6 +222,100 @@ app.whenReady().then(async () => {
       .replace(/&amp;/g, "&")
       .replace(/&#39;/g, "'")
       .replace(/&quot;/g, '"');
+  });
+  async function boardRequest(body: unknown, needsToken = true) {
+    const action = (body as { action?: string }).action;
+    const pairedGuest =
+      needsToken &&
+      !secrets.queueToken &&
+      Boolean(secrets.pairRoom) &&
+      ["vocabulary", "transcribe"].includes(action || "");
+    if (needsToken && !secrets.queueToken && !pairedGuest)
+      throw Error(
+        "Pair with Leif's room, or add the JyutDeck request token in Settings first.",
+      );
+    if (pairedGuest) body = { ...(body as object), room: secrets.pairRoom };
+    const endpoint = new URL(
+      secrets.queueUrl ||
+        "https://jyutdeck-live-jul08f.vercel.app/api/v1/requests",
+    );
+    endpoint.pathname = "/api/v1/board";
+    endpoint.search = "";
+    const response = await net.fetch(endpoint.toString(), {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(needsToken && secrets.queueToken
+          ? { Authorization: `Bearer ${secrets.queueToken}` }
+          : {}),
+      },
+      body: JSON.stringify(body),
+      redirect: "error",
+      signal: AbortSignal.timeout(90000),
+    });
+    const result = await response.json();
+    if (!response.ok)
+      throw Error(result.error || "JyutDeck connection unavailable.");
+    return result;
+  }
+  ipcMain.handle("board:vocabulary", async (event) => {
+    trusted(event);
+    return boardRequest({ action: "vocabulary" });
+  });
+  ipcMain.handle("board:transcribe", async (event, input) => {
+    trusted(event);
+    const audio = z
+      .string()
+      .max(2_800_000)
+      .regex(/^data:audio\//)
+      .parse(input);
+    return boardRequest({ action: "transcribe", audio });
+  });
+  ipcMain.handle("board:pair", async (event, input) => {
+    trusted(event);
+    const value = z
+      .object({
+        action: z.enum(["remember", "get", "publish", "resolve", "forget"]),
+        room: z
+          .string()
+          .regex(/^[a-f0-9]{48}$/)
+          .optional(),
+        relay: z.string().url().max(500).optional(),
+        host: z.boolean().optional(),
+      })
+      .strict()
+      .parse(input);
+    if (value.action === "get")
+      return secrets.pairRoom
+        ? { room: secrets.pairRoom, host: secrets.pairHost === "true" }
+        : null;
+    if (value.action === "resolve")
+      return boardRequest(
+        { action: "resolve", room: value.room || secrets.pairRoom },
+        false,
+      );
+    if (value.action === "publish")
+      return boardRequest({
+        action: "publish",
+        room: value.room,
+        relay: value.relay,
+      });
+    if (!safeStorage.isEncryptionAvailable())
+      throw Error("OS credential encryption is unavailable.");
+    if (value.action === "forget") {
+      delete secrets.pairRoom;
+      delete secrets.pairHost;
+    } else {
+      if (!value.room) throw Error("Room required");
+      secrets.pairRoom = value.room;
+      secrets.pairHost = String(value.host === true);
+    }
+    await writeFile(
+      join(app.getPath("userData"), "settings.enc"),
+      safeStorage.encryptString(JSON.stringify(secrets)),
+      { mode: 0o600 },
+    );
+    return true;
   });
   ipcMain.handle("queue:send", async (event, input) => {
     trusted(event);

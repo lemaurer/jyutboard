@@ -5,7 +5,7 @@ export type Word = {
   chinese: string;
   jyutping: string;
   definition: string;
-  state?: "new" | "learning" | "known";
+  state?: "new" | "learning" | "known" | "queued" | "unknown";
 };
 export type TableRow = {
   id: string;
@@ -15,6 +15,11 @@ export type TableRow = {
   note: string;
   words: Word[];
   translation: string;
+  persona: string;
+  avatar: string;
+  answerChinese: string;
+  answerJyutping: string;
+  answerDefinition: string;
 };
 export type CardMode =
   | "full"
@@ -22,12 +27,13 @@ export type CardMode =
   | "peek"
   | "characters"
   | "breakdown"
-  | "practice";
-export type CardShape = "rounded" | "sheet" | "sticky";
+  | "practice"
+  | "inline";
+export type CardShape = "rounded" | "sheet" | "sticky" | "bubble";
 export type SourceLanguage = "chinese" | "jyutping" | "english";
 export type Card = {
   id: string;
-  kind: "phrase" | "note" | "table" | "sticker";
+  kind: "phrase" | "note" | "table" | "sticker" | "conversation";
   chinese: string;
   jyutping: string;
   definition: string;
@@ -48,6 +54,8 @@ export type Card = {
   height: number;
   textScale: number;
   tint: string;
+  tableVariant: "phrases" | "vocabulary" | "pattern" | "qa" | "comparison";
+  tableStyle: "minimal" | "ruled" | "cards";
   audio?: string;
   audioName?: string;
   receipt?: string;
@@ -82,6 +90,7 @@ export type Presence = {
   signal?: string;
   attentionAt?: number;
   presenting?: boolean;
+  laser?: { points: [number, number][]; at: number };
   view?: { x: number; y: number; zoom: number };
   at: number;
 };
@@ -116,6 +125,8 @@ export function createCard(fields: Partial<Card> = {}): Card {
     height: 0,
     textScale: 1,
     tint: "",
+    tableVariant: "phrases",
+    tableStyle: "minimal",
     ...fields,
   };
 }
@@ -128,6 +139,11 @@ export function createTableRow(fields: Partial<TableRow> = {}): TableRow {
     note: "",
     words: [],
     translation: "local",
+    persona: "Natasha",
+    avatar: "natasha",
+    answerChinese: "",
+    answerJyutping: "",
+    answerDefinition: "",
     ...fields,
   };
 }
@@ -208,9 +224,14 @@ const wordSchema = z.object({
   chinese: z.string().max(2000),
   jyutping: z.string().max(2000),
   definition: z.string().max(4000),
-  state: z.enum(["new", "learning", "known"]).optional(),
+  state: z.enum(["new", "learning", "known", "queued", "unknown"]).optional(),
 });
 export const tableRowSchema = z.object({
+  persona: z.string().max(80).default("Natasha"),
+  avatar: z.string().max(40).default("natasha"),
+  answerChinese: z.string().max(2000).default(""),
+  answerJyutping: z.string().max(4000).default(""),
+  answerDefinition: z.string().max(4000).default(""),
   id: z.string().max(100),
   chinese: z.string().max(2000),
   jyutping: z.string().max(4000),
@@ -221,7 +242,7 @@ export const tableRowSchema = z.object({
 });
 export const cardSchema = z.object({
   id: z.string().max(100),
-  kind: z.enum(["phrase", "note", "table", "sticker"]),
+  kind: z.enum(["phrase", "note", "table", "sticker", "conversation"]),
   chinese: z.string().max(2000),
   jyutping: z.string().max(4000),
   definition: z.string().max(4000),
@@ -232,9 +253,21 @@ export const cardSchema = z.object({
   created: z.number(),
   translation: z.string().max(200),
   mode: z
-    .enum(["full", "compact", "peek", "characters", "breakdown", "practice"])
+    .enum([
+      "full",
+      "compact",
+      "peek",
+      "characters",
+      "breakdown",
+      "practice",
+      "inline",
+    ])
     .default("full"),
-  shape: z.enum(["rounded", "sheet", "sticky"]).default("rounded"),
+  shape: z.enum(["rounded", "sheet", "sticky", "bubble"]).default("rounded"),
+  tableVariant: z
+    .enum(["phrases", "vocabulary", "pattern", "qa", "comparison"])
+    .default("phrases"),
+  tableStyle: z.enum(["minimal", "ruled", "cards"]).default("minimal"),
   rows: z.array(tableRowSchema).max(500).default([]),
   hideEnglishForLearner: z.boolean().default(false),
   sourceLanguage: z.enum(["chinese", "jyutping", "english"]).default("chinese"),

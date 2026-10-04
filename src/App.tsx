@@ -9,6 +9,8 @@ import {
 import * as Y from "yjs";
 import {
   ArrowRight,
+  MessageCircle,
+  Zap,
   ArrowUpRight,
   BookOpen,
   Check,
@@ -78,6 +80,16 @@ import { analyzeLocal, translatePublic } from "./language";
 import { loadPreference, preference, remember, sessions } from "./storage";
 import { useLesson } from "./useLesson";
 import { AudioRecorder } from "./AudioRecorder";
+import { CanvasTable } from "./CanvasTable";
+import { Conversation } from "./Conversation";
+import { PersonAvatar } from "./PersonAvatar";
+import { PushToTalk } from "./PushToTalk";
+import {
+  VocabularyPhrase,
+  vocabularyState,
+  type VocabularySnapshot,
+  type HighlightMode,
+} from "./VocabularyPhrase";
 import { Settings } from "./Settings";
 import { StickerArt, StickerLibrary } from "./Stickers";
 import { DrawingLayer } from "./DrawingLayer";
@@ -92,6 +104,7 @@ import {
 import { WordBreakdown } from "./WordBreakdown";
 
 type Tool =
+  | "laser"
   | "erase"
   | "select"
   | "draw"
@@ -166,6 +179,34 @@ export default function App() {
   } | null>(null);
   const erasing = useRef(false);
   const gestureMoved = useRef(false);
+  const [highlightMode, setHighlightMode] = useState<HighlightMode>(
+    loadPreference("vocabularyHighlight", "hover") as HighlightMode,
+  );
+  const [vocabulary, setVocabulary] = useState<VocabularySnapshot>();
+  const [vocabularyMessage, setVocabularyMessage] = useState(
+    "Not connected to JyutDeck yet",
+  );
+  const [now, setNow] = useState(Date.now());
+  const [editingCard, setEditingCard] = useState<string | null>(null);
+  const [paired, setPaired] = useState<{
+    room?: string;
+    host?: boolean;
+  } | null>(null);
+  const [tableVariant, setTableVariant] =
+    useState<Card["tableVariant"]>("phrases");
+  const connectorDrag = useRef<{
+    from: string;
+    point: [number, number];
+  } | null>(null);
+  const [connectorPreview, setConnectorPreview] = useState<{
+    from: string;
+    point: [number, number];
+  } | null>(null);
+  const laser = useRef<[number, number][] | null>(null);
+  const [localLaser, setLocalLaser] = useState<{
+    points: [number, number][];
+    at: number;
+  } | null>(null);
   const [selectedStroke, setSelectedStroke] = useState<string | null>(null);
   const [input, setInput] = useState("");
   const [settings, setSettings] = useState(false);
@@ -289,6 +330,57 @@ export default function App() {
       : CENTER_Y;
     requestAnimationFrame(() => centerView(targetX, targetY));
   }, [doc, session.id, cards]);
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 200);
+    return () => clearInterval(timer);
+  }, []);
+  useEffect(() => {
+    void window.desktop?.pair({ action: "get" }).then(setPaired);
+  }, []);
+  useEffect(() => {
+    if (!doc) return;
+    const refresh = () => {
+      const snapshot = doc
+        .getMap<VocabularySnapshot>("vocabulary")
+        .get("snapshot");
+      if (snapshot?.known && snapshot?.queued) setVocabulary(snapshot);
+    };
+    doc.getMap("vocabulary").observe(refresh);
+    refresh();
+    return () => doc.getMap("vocabulary").unobserve(refresh);
+  }, [doc]);
+  useEffect(() => {
+    if (!doc || !window.desktop) return;
+    let active = true;
+    async function refresh() {
+      try {
+        const snapshot = await window.desktop!.vocabulary();
+        if (active) {
+          doc!.transact(
+            () =>
+              doc!
+                .getMap<VocabularySnapshot>("vocabulary")
+                .set("snapshot", snapshot),
+            "vocabulary",
+          );
+          setVocabularyMessage(
+            `Connected · ${snapshot.known.length} known forms · ${snapshot.queued.length} queued`,
+          );
+        }
+      } catch {
+        if (active)
+          setVocabularyMessage(
+            "JyutDeck unavailable · cached states shown when available",
+          );
+      }
+    }
+    void refresh();
+    const timer = setInterval(() => void refresh(), 60000);
+    return () => {
+      active = false;
+      clearInterval(timer);
+    };
+  }, [doc, settings, paired?.room]);
   useEffect(() => {
     const node = viewport.current;
     if (!node) return;
@@ -712,6 +804,7 @@ export default function App() {
     addCard(doc, card);
     lesson.stopCapturing();
     selectCard(card.id);
+    setEditingCard(card.id);
     setTool("select");
   }
   function addNote(location = newCardPosition()) {
@@ -733,7 +826,14 @@ export default function App() {
     if (!doc) return;
     const card = createCard({
       kind: "table",
-      chinese: "Phrase list",
+      tableVariant,
+      chinese: {
+        phrases: "Phrase list",
+        vocabulary: "Vocabulary",
+        pattern: "Sentence patterns",
+        qa: "Questions & answers",
+        comparison: "Compare phrases",
+      }[tableVariant],
       rows: [createTableRow()],
       x: clamp(location[0], 0, BOARD_WIDTH - 650),
       y: clamp(location[1], 0, BOARD_HEIGHT - 300),
@@ -804,6 +904,19 @@ export default function App() {
       });
       return;
     }
+    if (connectorDrag.current) {
+      connectorDrag.current.point = [x, y];
+      setConnectorPreview({ ...connectorDrag.current });
+      gestureMoved.current = true;
+      return;
+    }
+    if (laser.current) {
+      laser.current = [...laser.current.slice(-63), [x, y]];
+      const value = { points: laser.current, at: Date.now() };
+      setLocalLaser(value);
+      lesson.presence({ laser: value });
+      return;
+    }
     if (resizing.current && doc) {
       const snapshot = resizing.current,
         [sx, sy] = snapshot.start;
@@ -845,7 +958,10 @@ export default function App() {
       const snapshot = drag.current;
       const dx = x - snapshot.start[0],
         dy = y - snapshot.start[1];
-      if (Math.abs(dx) + Math.abs(dy) > 2) gestureMoved.current = true;
+      if (Math.abs(dx) + Math.abs(dy) > 2) {
+        gestureMoved.current = true;
+        board.current?.setPointerCapture(event.pointerId);
+      }
       const boxes = [
         ...snapshot.cards.map((card) => cardBox(card)),
         ...snapshot.strokes.map((stroke) => pointsBox(stroke.points)),
@@ -875,7 +991,32 @@ export default function App() {
       setPending({ ...stroke, points: [...stroke.points] });
     }
   }
-  function endPointer() {
+  function endPointer(event?: { clientX: number; clientY: number }) {
+    if (connectorDrag.current) {
+      const from = connectorDrag.current.from;
+      const location = event ? point(event) : connectorDrag.current.point;
+      const target = cards
+        .slice()
+        .reverse()
+        .find(
+          (card) =>
+            card.id !== from &&
+            intersects(
+              { x: location[0], y: location[1], width: 1, height: 1 },
+              cardBox(card),
+            ),
+        );
+      if (target) addConnector(from, target.id);
+      connectorDrag.current = null;
+      setConnectorPreview(null);
+    }
+    if (laser.current) {
+      const value = { points: laser.current, at: Date.now() };
+      setLocalLaser(value);
+      lesson.presence({ laser: value });
+      laser.current = null;
+    }
+
     if (marquee.current) {
       marquee.current = null;
       setSelectionRect(null);
@@ -914,7 +1055,6 @@ export default function App() {
       cards: cards.filter((card) => ids.has(card.id)),
       strokes: strokes.filter((stroke) => ids.has(stroke.id)),
     };
-    board.current?.setPointerCapture(event.pointerId);
   }
   function startStroke(
     event: PointerEvent<SVGPolylineElement>,
@@ -942,6 +1082,143 @@ export default function App() {
     setSelectedStroke(ids.size === 1 ? stroke.id : null);
     if (!rightOpen) setTemporaryRight(true);
     if (ids.has(stroke.id)) beginDrag(event, ids);
+  }
+  function changeAnswer(cardId: string, row: TableRow, text: string) {
+    if (!doc) return;
+    const local = analyzeLocal(text);
+    patchTableRow(doc, cardId, row.id, {
+      answerChinese: text,
+      answerJyutping: local.jyutping,
+      answerDefinition: local.definition,
+    });
+    if (online && text.trim()) {
+      const document = doc;
+      const key = `answer:${cardId}:${row.id}`;
+      const revision = Date.now();
+      translationRequests.current.set(key, revision);
+      void (
+        window.desktop ? window.desktop.translate(text) : translatePublic(text)
+      )
+        .then((definition) => {
+          const current = getTableRow(document, cardId, row.id);
+          if (
+            translationRequests.current.get(key) === revision &&
+            current?.answerChinese === text &&
+            current.answerDefinition === local.definition
+          )
+            document.transact(
+              () =>
+                patchTableRow(document, cardId, row.id, {
+                  answerDefinition: definition,
+                }),
+              "translation",
+            );
+        })
+        .catch(() => {});
+    }
+  }
+  function connectHandle(card: Card) {
+    return (
+      <button
+        className="connect-handle"
+        aria-label="Drag connector"
+        title="Drag to another element"
+        onClick={(e) => e.stopPropagation()}
+        onPointerDown={(e) => {
+          e.stopPropagation();
+          connectorDrag.current = { from: card.id, point: point(e) };
+          setConnectorPreview({ ...connectorDrag.current });
+          board.current?.setPointerCapture(e.pointerId);
+        }}
+      />
+    );
+  }
+  function editPhraseInPlace(card: Card, text: string) {
+    if (!doc) return;
+    if (teacher)
+      patchCard(doc, card.id, {
+        chinese: text,
+        ...analyzeLocal(text),
+        translation: "local",
+      });
+    else if (card.sourceLanguage === "english")
+      patchCard(doc, card.id, { definition: text, translation: "edited" });
+    else patchCard(doc, card.id, { jyutping: text });
+  }
+  function speechPhrase(text: string, audio: string) {
+    if (!doc) return;
+    const card = createCard({
+      chinese: text,
+      ...analyzeLocal(text),
+      audio,
+      audioName: "Exact push-to-talk recording",
+      shape: "bubble",
+      x: newCardPosition()[0],
+      y: newCardPosition()[1],
+    });
+    lesson.stopCapturing();
+    addCard(doc, card);
+    lesson.stopCapturing();
+    selectCard(card.id);
+    if (text) void enrichPhrase(doc, card);
+    else setEditingCard(card.id);
+  }
+  function addConversation() {
+    if (!doc) return;
+    const location = newCardPosition();
+    const card = createCard({
+      kind: "conversation",
+      chinese: "Conversation",
+      x: location[0],
+      y: location[1],
+      width: 500,
+      rows: [
+        createTableRow({ persona: "Leif", avatar: "leif" }),
+        createTableRow({ persona: "Natasha", avatar: "natasha" }),
+      ],
+    });
+    addCard(doc, card);
+    selectCard(card.id);
+  }
+  async function joinPartner() {
+    if (!paired?.room || !window.desktop) return;
+    setSharingBusy(true);
+    try {
+      if (paired.host) {
+        const result = await window.desktop.hostRemote();
+        await window.desktop.pair({
+          action: "publish",
+          room: paired.room,
+          relay: result.url,
+        });
+        switchSession({
+          ...history.find((item) => item.id === paired.room),
+          id: paired.room,
+          title: "Our shared teaching room",
+          created: Date.now(),
+          relay: result.url,
+        });
+      } else {
+        const result = await window.desktop.pair({
+          action: "resolve",
+          room: paired.room,
+        });
+        if (!result?.relay)
+          throw Error("Your partner needs to open the room first.");
+        switchSession({
+          ...history.find((item) => item.id === paired.room),
+          id: paired.room,
+          title: "Our shared teaching room",
+          created: Date.now(),
+          relay: result.relay,
+        });
+      }
+      setSharing(false);
+    } catch (e) {
+      notify(errorText(e));
+    } finally {
+      setSharingBusy(false);
+    }
   }
   function resizeHandle(card: Card) {
     if (!selectedItems.has(card.id) || selectedItems.size !== 1) return null;
@@ -1214,6 +1491,23 @@ export default function App() {
       const result = await window.desktop.hostRemote();
       updateSession({ ...session, relay: result.url });
       setInvite(inviteFor(session.id, result.url));
+      try {
+        await window.desktop.pair({
+          action: "publish",
+          room: session.id,
+          relay: result.url,
+        });
+        await window.desktop.pair({
+          action: "remember",
+          room: session.id,
+          host: true,
+        });
+        setPaired({ room: session.id, host: true });
+      } catch {
+        notify(
+          "Invitation ready. Add your JyutDeck token in Settings to remember a pairing.",
+        );
+      }
       notify("Remote lesson ready. Copy the invitation for your partner.");
     } catch (error) {
       notify(errorText(error));
@@ -1235,6 +1529,9 @@ export default function App() {
               relay: parsed.relay,
             },
       );
+      void window.desktop
+        ?.pair({ action: "remember", room: parsed.room, host: false })
+        .then(() => setPaired({ room: parsed.room, host: false }));
       setSharing(false);
       notify("Joining the shared lesson…");
     } catch (error) {
@@ -1402,9 +1699,22 @@ export default function App() {
       {leftOpen && (
         <aside className="sidebar">
           <div className="brand">
-            <div className="brand-icon">粵</div>
+            <img className="brand-icon" src="./app-icon.png" alt="" />
             <strong>JyutBoard</strong>
           </div>
+          {paired && (
+            <button
+              className="join-partner"
+              disabled={sharingBusy}
+              onClick={() => void joinPartner()}
+            >
+              {paired.host
+                ? "Open our room"
+                : teacher
+                  ? "Join Leif"
+                  : "Join Natasha"}
+            </button>
+          )}
           <div className="sidebar-section-title">PAGES</div>
           <button
             className="new-session"
@@ -1663,6 +1973,20 @@ export default function App() {
                 >
                   <Table2 size={17} />
                 </button>
+                <select
+                  className="table-template-select"
+                  aria-label="Table template"
+                  value={tableVariant}
+                  onChange={(e) =>
+                    setTableVariant(e.target.value as Card["tableVariant"])
+                  }
+                >
+                  <option value="phrases">Phrase list</option>
+                  <option value="vocabulary">Vocabulary</option>
+                  <option value="pattern">Patterns</option>
+                  <option value="qa">Question / answer</option>
+                  <option value="comparison">Comparison</option>
+                </select>
                 <button
                   title="Place sticker on canvas"
                   aria-label="Place sticker on canvas"
@@ -1673,6 +1997,21 @@ export default function App() {
                   }}
                 >
                   <StickerArt id="star" />
+                </button>
+                <button
+                  title="Add conversation"
+                  aria-label="Add conversation"
+                  onClick={addConversation}
+                >
+                  <MessageCircle size={18} />
+                </button>
+                <button
+                  title="Laser pointer"
+                  aria-label="Laser pointer"
+                  className={tool === "laser" ? "active" : ""}
+                  onClick={() => setTool("laser")}
+                >
+                  <Zap size={18} />
                 </button>
               </div>
               <div className="tool-group">
@@ -1728,6 +2067,20 @@ export default function App() {
                   >
                     <X size={15} />
                   </button>
+                </div>
+                <div className="persona-stickers">
+                  {["natasha", "leif", "friend", "teacher"].map((id) => (
+                    <button
+                      key={id}
+                      aria-label={`Person ${id}`}
+                      onClick={() => {
+                        setSticker(`person-${id}`);
+                        setStickerLibraryOpen(false);
+                      }}
+                    >
+                      <PersonAvatar id={id} name={id} />
+                    </button>
+                  ))}
                 </div>
                 <StickerLibrary
                   selected={sticker}
@@ -1792,6 +2145,14 @@ export default function App() {
                         width: 0,
                         height: 0,
                       });
+                      event.currentTarget.setPointerCapture(event.pointerId);
+                      return;
+                    }
+                    if (tool === "laser") {
+                      laser.current = [location];
+                      const value = { points: [location], at: Date.now() };
+                      setLocalLaser(value);
+                      lesson.presence({ laser: value });
                       event.currentTarget.setPointerCapture(event.pointerId);
                       return;
                     }
@@ -1877,6 +2238,70 @@ export default function App() {
                       if (!rightOpen) setTemporaryRight(true);
                     }}
                   />
+                  <svg
+                    className="laser-layer"
+                    width={BOARD_WIDTH}
+                    height={BOARD_HEIGHT}
+                  >
+                    {[
+                      ...(localLaser ? [localLaser] : []),
+                      ...peers.flatMap((peer) =>
+                        peer.laser ? [peer.laser] : [],
+                      ),
+                    ]
+                      .filter((value) => now - value.at < 1800)
+                      .map((value, index) => (
+                        <polyline
+                          key={index}
+                          points={value.points
+                            .map((point) => point.join(","))
+                            .join(" ")}
+                          stroke="#f2647e"
+                          strokeWidth={4}
+                          fill="none"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          opacity={Math.max(0, 1 - (now - value.at) / 1800)}
+                        />
+                      ))}
+                    {connectorPreview &&
+                      cards.find(
+                        (card) => card.id === connectorPreview.from,
+                      ) && (
+                        <line
+                          x1={
+                            cardBox(
+                              cards.find(
+                                (card) => card.id === connectorPreview.from,
+                              )!,
+                            ).x +
+                            cardBox(
+                              cards.find(
+                                (card) => card.id === connectorPreview.from,
+                              )!,
+                            ).width
+                          }
+                          y1={
+                            cardBox(
+                              cards.find(
+                                (card) => card.id === connectorPreview.from,
+                              )!,
+                            ).y +
+                            cardBox(
+                              cards.find(
+                                (card) => card.id === connectorPreview.from,
+                              )!,
+                            ).height /
+                              2
+                          }
+                          x2={connectorPreview.point[0]}
+                          y2={connectorPreview.point[1]}
+                          stroke={inkColor}
+                          strokeWidth={2}
+                          strokeDasharray="5 4"
+                        />
+                      )}
+                  </svg>
                   {selectionRect && (
                     <div
                       className="selection-marquee"
@@ -1902,11 +2327,72 @@ export default function App() {
                     </div>
                   )}
                   {cards.map((card, index) =>
-                    card.kind === "table" ? (
+                    card.kind === "conversation" ? (
+                      <article
+                        key={card.id}
+                        data-testid="conversation-card"
+                        data-card-id={card.id}
+                        className={`board-card conversation-card ${selectedItems.has(card.id) ? "selected" : ""}`}
+                        ref={(node) => {
+                          if (node) cardElements.current.set(card.id, node);
+                          else cardElements.current.delete(card.id);
+                        }}
+                        style={cardStyle(card)}
+                        onPointerDown={(event) => startDrag(event, card)}
+                        onClick={(event) => {
+                          if (!gestureMoved.current)
+                            selectCard(card.id, null, event.shiftKey, true);
+                          gestureMoved.current = false;
+                        }}
+                      >
+                        <input
+                          className="conversation-title"
+                          aria-label="Conversation title"
+                          value={card.chinese}
+                          onChange={(e) =>
+                            doc &&
+                            patchCard(doc, card.id, { chinese: e.target.value })
+                          }
+                        />
+                        <Conversation
+                          card={card}
+                          teacher={teacher}
+                          hidden={englishHidden(card, teacher)}
+                          onChange={(row, patch) =>
+                            doc && patchTableRow(doc, card.id, row.id, patch)
+                          }
+                          onChinese={(row, text) =>
+                            changeRowChinese(card.id, row, text)
+                          }
+                          onEnrich={(row) =>
+                            doc && void enrichRow(doc, card.id, row)
+                          }
+                          onSelect={(row) => selectCard(card.id, row.id)}
+                          onAdd={() =>
+                            doc &&
+                            addTableRow(
+                              doc,
+                              card.id,
+                              createTableRow({
+                                persona:
+                                  card.rows.length % 2 ? "Natasha" : "Leif",
+                                avatar:
+                                  card.rows.length % 2 ? "natasha" : "leif",
+                              }),
+                            )
+                          }
+                          onDelete={(row) =>
+                            doc && deleteTableRow(doc, card.id, row.id)
+                          }
+                        />
+                        {connectHandle(card)}
+                        {resizeHandle(card)}
+                      </article>
+                    ) : card.kind === "table" ? (
                       <article
                         key={card.id}
                         data-testid="table-card"
-                        className={`board-card table-card ${selectedItems.has(card.id) ? "selected" : ""}`}
+                        className={`board-card table-card table-style-${card.tableStyle} table-variant-${card.tableVariant} ${selectedItems.has(card.id) ? "selected" : ""}`}
                         data-card-id={card.id}
                         ref={(node) => {
                           if (node) cardElements.current.set(card.id, node);
@@ -1920,15 +2406,9 @@ export default function App() {
                         }}
                       >
                         <div
-                          className="card-handle"
+                          className="table-title"
                           onPointerDown={(event) => startDrag(event, card)}
                         >
-                          <Grip size={14} />
-                          <span>PHRASE TABLE {index + 1}</span>
-                          <span className="handle-spacer" />
-                          <span className="drag-hint">Drag</span>
-                        </div>
-                        <div className="table-title">
                           <Table2 size={18} />
                           {teacher ? (
                             <input
@@ -1947,121 +2427,37 @@ export default function App() {
                             <strong>{card.chinese}</strong>
                           )}
                         </div>
-                        <table className="phrase-table">
-                          <thead>
-                            <tr>
-                              <th>{teacher ? "中文" : "Jyutping"}</th>
-                              {!englishHidden(card, teacher) && (
-                                <th>English</th>
-                              )}
-                              <th>Notes</th>
-                              <th className="row-controls" />
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {card.rows.map((row) => (
-                              <tr
-                                key={row.id}
-                                className={
-                                  selectedRow === row.id && selected === card.id
-                                    ? "row-selected"
-                                    : ""
-                                }
-                                onClick={(event) => {
-                                  event.stopPropagation();
-                                  selectCard(card.id, row.id);
-                                }}
-                              >
-                                <td>
-                                  {teacher ? (
-                                    <input
-                                      aria-label="Chinese phrase"
-                                      placeholder="寫句中文…"
-                                      value={row.chinese}
-                                      maxLength={2000}
-                                      onChange={(event) =>
-                                        changeRowChinese(
-                                          card.id,
-                                          row,
-                                          event.target.value,
-                                        )
-                                      }
-                                      onBlur={() => {
-                                        if (doc)
-                                          void enrichRow(doc, card.id, row);
-                                      }}
-                                    />
-                                  ) : (
-                                    <span className="table-jyutping">
-                                      {row.jyutping || "—"}
-                                    </span>
-                                  )}
-                                </td>
-                                {!englishHidden(card, teacher) && (
-                                  <td>
-                                    <input
-                                      aria-label="English translation"
-                                      placeholder="Translation…"
-                                      value={row.definition}
-                                      maxLength={4000}
-                                      onChange={(event) =>
-                                        doc &&
-                                        patchTableRow(doc, card.id, row.id, {
-                                          definition: event.target.value,
-                                          translation: "edited",
-                                        })
-                                      }
-                                    />
-                                  </td>
-                                )}
-                                <td>
-                                  <input
-                                    aria-label="Row note"
-                                    placeholder="Add note…"
-                                    value={row.note}
-                                    maxLength={4000}
-                                    onChange={(event) =>
-                                      doc &&
-                                      patchTableRow(doc, card.id, row.id, {
-                                        note: event.target.value,
-                                      })
-                                    }
-                                  />
-                                </td>
-                                <td className="row-controls">
-                                  <button
-                                    title="Delete row"
-                                    aria-label="Delete row"
-                                    onClick={(event) => {
-                                      event.stopPropagation();
-                                      if (doc)
-                                        deleteTableRow(doc, card.id, row.id);
-                                      if (selectedRow === row.id)
-                                        setSelectedRow(null);
-                                    }}
-                                  >
-                                    <X size={13} />
-                                  </button>
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                        <div className="table-bottom">
-                          <button
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              if (doc)
-                                addTableRow(doc, card.id, createTableRow());
-                            }}
-                          >
-                            <Plus size={14} /> Add row
-                          </button>
-                          <span>
-                            {card.rows.length}{" "}
-                            {card.rows.length === 1 ? "entry" : "entries"}
-                          </span>
-                        </div>
+                        <CanvasTable
+                          card={card}
+                          teacher={teacher}
+                          hidden={englishHidden(card, teacher)}
+                          selectedRow={
+                            selected === card.id ? selectedRow : null
+                          }
+                          vocabulary={vocabulary}
+                          highlightMode={highlightMode}
+                          onSelect={(row) => selectCard(card.id, row.id)}
+                          onChinese={(row, text) =>
+                            changeRowChinese(card.id, row, text)
+                          }
+                          onEnrich={(row) =>
+                            doc && void enrichRow(doc, card.id, row)
+                          }
+                          onPatch={(row, patch) =>
+                            doc && patchTableRow(doc, card.id, row.id, patch)
+                          }
+                          onAnswer={(row, text) =>
+                            changeAnswer(card.id, row, text)
+                          }
+                          onAdd={() =>
+                            doc && addTableRow(doc, card.id, createTableRow())
+                          }
+                          onDelete={(row) => {
+                            if (doc) deleteTableRow(doc, card.id, row.id);
+                            if (selectedRow === row.id) setSelectedRow(null);
+                          }}
+                        />
+                        {connectHandle(card)}
                         {resizeHandle(card)}
                       </article>
                     ) : card.kind === "sticker" ? (
@@ -2082,10 +2478,18 @@ export default function App() {
                         }}
                         onPointerDown={(event) => startDrag(event, card)}
                       >
-                        <StickerArt
-                          id={card.sticker}
-                          selected={selectedItems.has(card.id)}
-                        />
+                        {card.sticker.startsWith("person-") ? (
+                          <PersonAvatar
+                            id={card.sticker.slice(7)}
+                            name={card.sticker.slice(7)}
+                          />
+                        ) : (
+                          <StickerArt
+                            id={card.sticker}
+                            selected={selectedItems.has(card.id)}
+                          />
+                        )}
+                        {connectHandle(card)}
                         {resizeHandle(card)}
                       </article>
                     ) : (
@@ -2114,75 +2518,109 @@ export default function App() {
                             startDrag(event, card);
                         }}
                       >
-                        <div
-                          className="card-handle"
-                          onPointerDown={(event) => {
-                            event.stopPropagation();
-                            startDrag(event, card);
-                          }}
-                        >
-                          <Grip size={14} />
-                          <span>
-                            {card.kind === "note"
-                              ? "NOTE"
-                              : card.words.length === 1
-                                ? "WORD"
-                                : "PHRASE"}
-                          </span>
-                          <span className="handle-spacer" />
-                          {card.kind === "phrase" && (
-                            <button
-                              aria-label={
-                                card.starred ? "Unsave phrase" : "Save phrase"
-                              }
-                              title={
-                                card.starred
-                                  ? "Remove from tray"
-                                  : "Save to tray"
-                              }
-                              className={card.starred ? "is-starred" : ""}
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                if (doc)
-                                  patchCard(doc, card.id, {
-                                    starred: !card.starred,
-                                  });
-                              }}
-                            >
-                              <Star
-                                size={16}
-                                fill={card.starred ? "currentColor" : "none"}
-                              />
-                            </button>
-                          )}
-                        </div>
+                        {card.kind === "phrase" && (
+                          <button
+                            className={`card-star ${card.starred ? "is-starred" : ""}`}
+                            aria-label={
+                              card.starred ? "Unsave phrase" : "Save phrase"
+                            }
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              if (doc)
+                                patchCard(doc, card.id, {
+                                  starred: !card.starred,
+                                });
+                            }}
+                          >
+                            <Star
+                              size={14}
+                              fill={card.starred ? "currentColor" : "none"}
+                            />
+                          </button>
+                        )}
                         {card.kind === "note" ? (
                           <div className="note-text">{card.definition}</div>
                         ) : (
                           <>
-                            <h2
-                              className={
-                                teacher || card.mode === "characters"
-                                  ? "card-chinese"
-                                  : "card-jyutping"
-                              }
-                            >
-                              {card.mode === "characters"
-                                ? card.chinese ||
-                                  card.jyutping ||
-                                  card.definition
-                                : teacher
-                                  ? card.chinese ||
-                                    card.jyutping ||
-                                    card.definition ||
-                                    "Write Chinese…"
-                                  : card.jyutping ||
-                                    (englishHidden(card, teacher)
-                                      ? "Add Jyutping…"
-                                      : card.definition ||
-                                        card.chinese ||
-                                        "Add Jyutping…")}
-                            </h2>
+                            {editingCard === card.id ? (
+                              <textarea
+                                autoFocus
+                                aria-label="Edit phrase in place"
+                                className="in-place-phrase"
+                                placeholder={
+                                  teacher ? "寫句中文…" : "Write Jyutping…"
+                                }
+                                value={
+                                  teacher
+                                    ? card.chinese
+                                    : card.sourceLanguage === "english"
+                                      ? card.definition
+                                      : card.jyutping
+                                }
+                                onClick={(e) => e.stopPropagation()}
+                                onChange={(e) =>
+                                  editPhraseInPlace(card, e.target.value)
+                                }
+                                onBlur={() => {
+                                  setEditingCard(null);
+                                  if (doc && teacher)
+                                    void enrichPhrase(doc, card);
+                                }}
+                                onKeyDown={(e) => {
+                                  if (
+                                    e.key === "Enter" &&
+                                    !e.shiftKey &&
+                                    !e.nativeEvent.isComposing
+                                  ) {
+                                    e.preventDefault();
+                                    e.currentTarget.blur();
+                                  }
+                                  if (e.key === "Escape")
+                                    e.currentTarget.blur();
+                                }}
+                              />
+                            ) : (
+                              <h2
+                                className={
+                                  teacher || card.mode === "characters"
+                                    ? "card-chinese"
+                                    : "card-jyutping"
+                                }
+                                title="Double-click to edit"
+                                onDoubleClick={(event) => {
+                                  event.stopPropagation();
+                                  setEditingCard(card.id);
+                                }}
+                              >
+                                <VocabularyPhrase
+                                  text={
+                                    card.mode === "characters"
+                                      ? card.chinese ||
+                                        card.jyutping ||
+                                        card.definition
+                                      : teacher
+                                        ? card.chinese ||
+                                          card.jyutping ||
+                                          card.definition ||
+                                          "Write Chinese…"
+                                        : card.jyutping ||
+                                          (englishHidden(card, teacher)
+                                            ? "Add Jyutping…"
+                                            : card.definition ||
+                                              card.chinese ||
+                                              "Add Jyutping…")
+                                  }
+                                  words={card.words}
+                                  chinese={
+                                    teacher || card.mode === "characters"
+                                  }
+                                  snapshot={vocabulary}
+                                  mode={highlightMode}
+                                  selected={selectedItems.has(card.id)}
+                                  recent={now - card.created < 5000}
+                                />
+                              </h2>
+                            )}
                             {!englishHidden(card, teacher) &&
                               !["peek", "characters"].includes(card.mode) &&
                               Boolean(card.chinese || card.jyutping) &&
@@ -2209,15 +2647,14 @@ export default function App() {
                                 <EyeOff size={13} /> Meaning hidden by Natasha
                               </div>
                             )}
-                            {(card.mode === "breakdown" ||
-                              expandedCards.has(card.id)) &&
+                            {expandedCards.has(card.id) &&
                               card.words.length > 0 && (
                                 <div className="card-word-chips">
                                   {card.words.map((word, wordIndex) => (
                                     <span
                                       key={`${word.chinese}-${wordIndex}`}
-                                      className={`state-${word.state ?? "new"}`}
-                                      title={`${word.state ?? "new"} vocabulary`}
+                                      className={`state-${vocabularyState(word, vocabulary)}`}
+                                      title={`${vocabularyState(word, vocabulary)} vocabulary`}
                                     >
                                       {teacher
                                         ? word.chinese
@@ -2237,15 +2674,6 @@ export default function App() {
                                 <p className="card-secondary">{card.chinese}</p>
                               )}
                             <div className="card-footer">
-                              <span>
-                                {card.mode === "breakdown"
-                                  ? "Vocabulary"
-                                  : card.mode === "practice"
-                                    ? "Practice"
-                                    : card.mode === "compact"
-                                      ? "Compact"
-                                      : ""}
-                              </span>
                               {card.audio && (
                                 <button
                                   aria-label="Play Natasha recording"
@@ -2288,6 +2716,7 @@ export default function App() {
                             </div>
                           </>
                         )}
+                        {connectHandle(card)}
                         {resizeHandle(card)}
                       </article>
                     ),
@@ -2378,6 +2807,9 @@ export default function App() {
                   ↻ Say that again
                 </button>
               </div>
+              {teacher && (
+                <PushToTalk onPhrase={speechPhrase} notify={notify} />
+              )}
               <div className="composer-entry">
                 <textarea
                   aria-label="Cantonese phrase"
@@ -2485,8 +2917,7 @@ export default function App() {
                               Choose shape…
                             </option>
                             <option value="rounded">Rounded</option>
-                            <option value="sheet">Sheet</option>
-                            <option value="sticky">Sticky</option>
+                            <option value="bubble">Speech bubble</option>
                           </select>
                         </label>
                       )}
@@ -2613,27 +3044,19 @@ export default function App() {
                     <h2>
                       {active.kind === "table"
                         ? "Table"
-                        : active.kind === "note"
-                          ? "Note"
-                          : active.kind === "sticker"
-                            ? "Sticker"
-                            : "Phrase"}
+                        : active.kind === "conversation"
+                          ? "Conversation"
+                          : active.kind === "note"
+                            ? "Note"
+                            : active.kind === "sticker"
+                              ? "Sticker"
+                              : "Phrase"}
                     </h2>
                     <button aria-label="Close details" onClick={clearSelection}>
                       <X size={17} />
                     </button>
                   </div>
                   <div className="element-actions">
-                    <button
-                      className={connectFrom === active.id ? "active" : ""}
-                      onClick={() =>
-                        setConnectFrom(
-                          connectFrom === active.id ? null : active.id,
-                        )
-                      }
-                    >
-                      <Link2 size={13} /> Connect to…
-                    </button>
                     <button onClick={duplicateSelection}>
                       <CopyPlus size={13} /> Duplicate
                     </button>
@@ -2644,6 +3067,47 @@ export default function App() {
                       <Trash2 size={13} />
                     </button>
                   </div>
+                  {active.kind === "table" && (
+                    <>
+                      <label>
+                        Table layout
+                        <select
+                          aria-label="Table layout"
+                          value={active.tableVariant}
+                          onChange={(e) =>
+                            doc &&
+                            patchCard(doc, active.id, {
+                              tableVariant: e.target
+                                .value as Card["tableVariant"],
+                            })
+                          }
+                        >
+                          <option value="phrases">Phrase list</option>
+                          <option value="vocabulary">Vocabulary</option>
+                          <option value="pattern">Patterns</option>
+                          <option value="qa">Question / answer</option>
+                          <option value="comparison">Comparison</option>
+                        </select>
+                      </label>
+                      <label>
+                        Table appearance
+                        <select
+                          aria-label="Table appearance"
+                          value={active.tableStyle}
+                          onChange={(e) =>
+                            doc &&
+                            patchCard(doc, active.id, {
+                              tableStyle: e.target.value as Card["tableStyle"],
+                            })
+                          }
+                        >
+                          <option value="minimal">Minimal</option>
+                          <option value="ruled">Ruled</option>
+                          <option value="cards">Soft rows</option>
+                        </select>
+                      </label>
+                    </>
+                  )}
                   <details className="size-options">
                     <summary>
                       <Scaling size={13} /> Size & style
@@ -2725,16 +3189,23 @@ export default function App() {
                       proportions.
                     </small>
                   </details>
-                  {active.kind === "table" ? (
+                  {["table", "conversation"].includes(active.kind) ? (
                     <>
                       <p className="small-copy">
-                        Dense phrases for a live lesson. Select a row to edit
-                        its parts.
+                        {active.kind === "conversation"
+                          ? "Build a dialogue together. Select a turn to edit its words."
+                          : "Dense phrases for a live lesson. Select a row to edit its parts."}
                       </p>
                       <label>
-                        Table title
+                        {active.kind === "conversation"
+                          ? "Dialogue title"
+                          : "Table title"}
                         <input
-                          aria-label="Table title in details"
+                          aria-label={
+                            active.kind === "conversation"
+                              ? "Dialogue title in details"
+                              : "Table title in details"
+                          }
                           value={active.chinese}
                           maxLength={100}
                           onChange={(event) =>
@@ -2766,11 +3237,18 @@ export default function App() {
                           doc && addTableRow(doc, active.id, createTableRow())
                         }
                       >
-                        <Plus size={14} /> Add table row
+                        <Plus size={14} />{" "}
+                        {active.kind === "conversation"
+                          ? "Add dialogue turn"
+                          : "Add table row"}
                       </button>
                       {activeRow && (
                         <div className="row-detail">
-                          <h3>Selected row</h3>
+                          <h3>
+                            {active.kind === "conversation"
+                              ? "Selected turn"
+                              : "Selected row"}
+                          </h3>
                           <p className="detail-primary">
                             {teacher ? activeRow.chinese : activeRow.jyutping}
                           </p>
@@ -2927,7 +3405,16 @@ export default function App() {
                               "Characters",
                               "Plain text; hover for reading",
                             ],
-                            ["breakdown", "Vocabulary", "Coloured word pieces"],
+                            [
+                              "breakdown",
+                              "Vocabulary",
+                              "Words coloured in the phrase",
+                            ],
+                            [
+                              "inline",
+                              "Inline vocabulary",
+                              "Highlight words inside the phrase",
+                            ],
                             ["practice", "Practice", "Hide English from Leif"],
                           ] as [CardMode, string, string][]
                         ).map(([mode, label, hint]) => (
@@ -2961,9 +3448,8 @@ export default function App() {
                       <div className="shape-choices">
                         {(
                           [
-                            ["rounded", "Rounded"],
-                            ["sheet", "Sheet"],
-                            ["sticky", "Sticky"],
+                            ["rounded", "Simple phrase"],
+                            ["bubble", "Speech bubble"],
                           ] as [CardShape, string][]
                         ).map(([shape, label]) => (
                           <button
@@ -2980,9 +3466,14 @@ export default function App() {
                     </div>
                   )}
                   {(active.kind === "phrase" ||
-                    (active.kind === "table" && activeRow)) && (
+                    (["table", "conversation"].includes(active.kind) &&
+                      activeRow)) && (
                     <WordBreakdown
-                      words={wordList}
+                      verified={Boolean(vocabulary)}
+                      words={wordList.map((word) => ({
+                        ...word,
+                        state: vocabularyState(word, vocabulary),
+                      }))}
                       teacher={teacher}
                       hidden={hidden}
                       onChange={updateWords}
@@ -3117,6 +3608,12 @@ export default function App() {
       )}
       {settings && (
         <Settings
+          highlightMode={highlightMode}
+          setHighlightMode={(value) => {
+            setHighlightMode(value);
+            preference("vocabularyHighlight", value);
+          }}
+          vocabularyMessage={vocabularyMessage}
           close={() => setSettings(false)}
           notify={notify}
           online={online}
@@ -3224,6 +3721,29 @@ export default function App() {
                 <p>Paste the invitation from your partner.</p>
               </div>
             </div>
+            {paired && (
+              <div className="row">
+                <button
+                  onClick={() => void joinPartner()}
+                  disabled={sharingBusy}
+                >
+                  {paired.host
+                    ? "Open our room"
+                    : teacher
+                      ? "Join Leif"
+                      : "Join Natasha"}
+                </button>
+                <button
+                  onClick={() =>
+                    void window.desktop
+                      ?.pair({ action: "forget" })
+                      .then(() => setPaired(null))
+                  }
+                >
+                  Forget pairing
+                </button>
+              </div>
+            )}
             <label>
               Lesson invitation
               <textarea

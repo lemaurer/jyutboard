@@ -204,9 +204,9 @@ test("temporary inspector, compact hover cards, clean split/merge editor and voc
   await page.getByLabel("Piece 1 vocabulary").selectOption("known");
   await page.getByLabel("Card note").fill("Ask where it is.");
   await page
-    .getByRole("button", { name: "Vocabulary Coloured word pieces" })
+    .getByRole("button", { name: "Vocabulary Words coloured in the phrase" })
     .click();
-  await expect(card.locator(".card-word-chips .state-known")).toHaveCount(1);
+  await expect(card.locator(".inline-vocabulary .state-known")).toHaveCount(1);
   await card.getByRole("button", { name: "Expand card" }).click();
   await expect(card.locator(".card-note")).toHaveText("Ask where it is.");
   await page.getByLabel("Hide English from Leif").check();
@@ -373,8 +373,26 @@ test("attached connectors follow resized cards; marquee selection edits, moves a
   await page.getByRole("button", { name: "Add phrase", exact: true }).click();
   await moveCard(1, 490, 200);
   await page.getByTestId("phrase-card").first().locator("h2").click();
-  await page.getByRole("button", { name: "Connect to…", exact: true }).click();
-  await page.getByTestId("phrase-card").nth(1).locator("h2").click();
+  const handle = (await page
+    .getByTestId("phrase-card")
+    .first()
+    .getByRole("button", { name: "Drag connector", exact: true })
+    .boundingBox())!;
+  const destination = (await page
+    .getByTestId("phrase-card")
+    .nth(1)
+    .boundingBox())!;
+  await page.mouse.move(
+    handle.x + handle.width / 2,
+    handle.y + handle.height / 2,
+  );
+  await page.mouse.down();
+  await page.mouse.move(
+    destination.x + destination.width / 2,
+    destination.y + destination.height / 2,
+    { steps: 10 },
+  );
+  await page.mouse.up();
   await expect(page.getByTestId("connector")).toHaveCount(1);
   const before = await page
     .getByTestId("connector")
@@ -542,4 +560,200 @@ test("thin drawings and highlights can be selected, recoloured and erased with u
   ).toBeVisible();
   await page.keyboard.press("Delete");
   await expect(page.getByTestId("drawing")).toHaveCount(1);
+});
+
+test("conversation turns translate, preserve custom personas and show Jyutping on the other screen", async ({
+  browser,
+}) => {
+  const teacher = await blankPage(browser),
+    learner = await blankPage(browser);
+  await teacher.getByRole("button", { name: "Natasha", exact: true }).click();
+  await teacher.getByRole("button", { name: "Share / Sync" }).click();
+  await teacher
+    .getByLabel("Relay address")
+    .fill(`ws://127.0.0.1:${relay.port}`);
+  await teacher
+    .getByRole("button", { name: "Create invitation", exact: true })
+    .click();
+  const invite = await teacher.getByLabel("Private invitation").inputValue();
+  await teacher.getByRole("button", { name: "Close sharing" }).click();
+  await learner.getByRole("button", { name: "Share / Sync" }).click();
+  await learner.getByLabel("Lesson invitation").fill(invite);
+  await learner
+    .getByRole("button", { name: "Join lesson", exact: true })
+    .click();
+  await teacher
+    .getByRole("button", { name: "Add conversation", exact: true })
+    .click();
+  const conversation = teacher.getByTestId("conversation-card");
+  await conversation.getByLabel("Dialogue Cantonese").first().fill("你好");
+  await conversation.getByLabel("Dialogue Cantonese").nth(1).fill("我想飲水");
+  await conversation
+    .getByLabel("Dialogue person")
+    .nth(1)
+    .selectOption("custom");
+  await conversation.getByLabel("Custom person name").fill("Waiter");
+  await conversation
+    .getByRole("button", { name: "Add turn", exact: true })
+    .click();
+  await expect(conversation.getByLabel("Dialogue Cantonese")).toHaveCount(3);
+  await expect(learner.getByTestId("conversation-card")).toContainText("ngo5");
+  await expect(learner.getByLabel("Custom person name")).toHaveValue("Waiter");
+  await teacher.screenshot({ path: "docs/conversation.png" });
+});
+
+test("minimal question/answer tables derive both readings and support alternate canvas appearances", async ({
+  browser,
+}) => {
+  const page = await blankPage(browser);
+  await page.getByRole("button", { name: "Natasha", exact: true }).click();
+  await page.getByLabel("Table template").selectOption("qa");
+  await page
+    .getByRole("button", { name: "Add phrase table", exact: true })
+    .click();
+  const table = page.getByTestId("table-card");
+  await table.getByLabel("Chinese phrase", { exact: true }).fill("飲咩？");
+  await table.getByLabel("Paired Chinese phrase").fill("飲水");
+  await table.getByLabel("Paired English translation").fill("Drink water");
+  await page.getByLabel("Table appearance").selectOption("ruled");
+  await expect(table).toHaveClass(/table-style-ruled/);
+  await page.getByRole("button", { name: "Leif", exact: true }).click();
+  await expect(table).toContainText("jam2 seoi2");
+  await expect(table.getByLabel("Paired English translation")).toHaveValue(
+    "Drink water",
+  );
+});
+
+test("in-place phrase edits and optional inline vocabulary colours use the verified snapshot", async ({
+  browser,
+}) => {
+  const page = await blankPage(browser);
+  await page.evaluate(() => {
+    (window as any).desktop = {
+      pair: async () => null,
+      vocabulary: async () => ({
+        known: ["我"],
+        queued: ["飲水"],
+        at: Date.now(),
+      }),
+      translate: async () => "I want water",
+    };
+  });
+  await page.getByRole("button", { name: "Natasha", exact: true }).click();
+  await page.getByLabel("Cantonese phrase").fill("我想飲水");
+  await page.getByRole("button", { name: "Add phrase", exact: true }).click();
+  const card = page.getByTestId("phrase-card");
+  await card.locator("h2").dblclick();
+  await card.getByLabel("Edit phrase in place").fill("我飲水");
+  await card.getByLabel("Edit phrase in place").press("Enter");
+  await expect(card.locator("h2")).toHaveText("我飲水");
+  // Restart the lesson subscription to request the mock's verified vocabulary.
+  await page.getByRole("button", { name: "New lesson", exact: true }).click();
+  await page.getByLabel("Cantonese phrase").fill("我飲水");
+  await page.getByRole("button", { name: "Add phrase", exact: true }).click();
+  await expect(page.locator(".inline-vocabulary .state-known")).toHaveCount(1);
+  await expect(page.locator(".inline-vocabulary .state-queued")).toHaveCount(1);
+  await expect(page.locator(".card-handle")).toHaveCount(0);
+  await page.getByTestId("phrase-card").hover();
+  await expect(page.locator(".inline-vocabulary .state-known")).toHaveCSS(
+    "color",
+    "rgb(38, 143, 117)",
+  );
+});
+
+test("laser lines appear live for the partner and fade without becoming saved ink", async ({
+  browser,
+}) => {
+  const teacher = await blankPage(browser),
+    learner = await blankPage(browser);
+  await teacher.getByRole("button", { name: "Share / Sync" }).click();
+  await teacher
+    .getByLabel("Relay address")
+    .fill(`ws://127.0.0.1:${relay.port}`);
+  await teacher
+    .getByRole("button", { name: "Create invitation", exact: true })
+    .click();
+  const invite = await teacher.getByLabel("Private invitation").inputValue();
+  await teacher.getByRole("button", { name: "Close sharing" }).click();
+  await learner.getByRole("button", { name: "Share / Sync" }).click();
+  await learner.getByLabel("Lesson invitation").fill(invite);
+  await learner
+    .getByRole("button", { name: "Join lesson", exact: true })
+    .click();
+  await teacher
+    .getByRole("button", { name: "Laser pointer", exact: true })
+    .click();
+  const box = (await teacher.locator(".canvas-viewport").boundingBox())!;
+  await teacher.mouse.move(box.x + 100, box.y + 100);
+  await teacher.mouse.down();
+  await teacher.mouse.move(box.x + 320, box.y + 160, { steps: 8 });
+  await expect(learner.locator(".laser-layer polyline")).toHaveCount(1);
+  await teacher.mouse.up();
+  await expect(learner.locator(".laser-layer polyline")).toHaveCount(0, {
+    timeout: 5000,
+  });
+  await expect(teacher.getByTestId("drawing")).toHaveCount(0);
+});
+
+test("push-to-talk creates a phrase and attaches the exact captured clip", async ({
+  browser,
+}) => {
+  const page = await blankPage(browser);
+  await page.addInitScript(() => {
+    localStorage.setItem("jyutboard:online", "false");
+    (window as any).desktop = {
+      pair: async () => null,
+      microphone: async () => true,
+      saveBackup: async(text:string)=>{(window as any).__backup=JSON.parse(text);return true;},
+      vocabulary: async () => ({ known: [], queued: [], at: Date.now() }),
+      transcribe: async (audio: string) => {
+        (window as any).__capturedClip = audio;
+        return { transcript: "你好我想飲水" };
+      },
+    };
+    Object.defineProperty(navigator.mediaDevices, "getUserMedia", {
+      value: async () => ({ getTracks: () => [{ stop() {} }] }),
+    });
+    class FakeRecorder {
+      static isTypeSupported() {
+        return true;
+      }
+      state = "inactive";
+      mimeType = "audio/webm";
+      ondataavailable: any;
+      onstop: any;
+      start() {
+        this.state = "recording";
+      }
+      stop() {
+        this.state = "inactive";
+        this.ondataavailable?.({
+          data: new Blob([new Uint8Array(256).fill(23)], {
+            type: this.mimeType,
+          }),
+        });
+        this.onstop?.();
+      }
+    }
+    (window as any).MediaRecorder = FakeRecorder;
+  });
+  await page.reload();
+  await page.getByRole("button", { name: "Natasha", exact: true }).click();
+  const button = page.getByRole("button", {
+    name: "Hold to speak Cantonese",
+    exact: true,
+  });
+  const box = (await button.boundingBox())!;
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+  await expect(button).toContainText("Release to create");
+  await page.mouse.up();
+  await expect(page.getByTestId("phrase-card").locator("h2")).toHaveText(
+    "你好我想飲水",
+  );
+  await expect(
+    page.getByRole("button", { name: "Play Natasha recording", exact: true }),
+  ).toHaveCount(1);
+  await page.getByRole("button",{name:"Export lesson backup",exact:true}).click();
+  await expect.poll(()=>page.evaluate(()=>(window as any).__backup?.cards?.[0]?.audio)).toBe(await page.evaluate(()=>(window as any).__capturedClip));
 });

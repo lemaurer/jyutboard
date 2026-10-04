@@ -38,6 +38,18 @@ function validPresence(value: Presence): boolean {
           validPoint(value.view.zoom, 2.5))) &&
       (value.attentionAt === undefined ||
         validPoint(value.attentionAt, Date.now() + 60000)) &&
+      (value.laser === undefined ||
+        (typeof value.laser.at === "number" &&
+          value.laser.at <= Date.now() + 60000 &&
+          Array.isArray(value.laser.points) &&
+          value.laser.points.length <= 96 &&
+          value.laser.points.every(
+            (point) =>
+              Array.isArray(point) &&
+              point.length === 2 &&
+              validPoint(point[0], 5600) &&
+              validPoint(point[1], 3600),
+          ))) &&
       (value.presenting === undefined || typeof value.presenting === "boolean"),
   );
 }

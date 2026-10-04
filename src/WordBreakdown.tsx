@@ -8,7 +8,9 @@ export function WordBreakdown({
   hidden,
   onChange,
   onAuto,
+  verified = false,
 }: {
+  verified?: boolean;
   words: Word[];
   teacher: boolean;
   hidden: boolean;
@@ -126,13 +128,16 @@ export function WordBreakdown({
                 Vocabulary
                 <select
                   aria-label={`Piece ${index + 1} vocabulary`}
-                  value={word.state ?? "new"}
+                  disabled={verified}
+                  value={word.state ?? "unknown"}
                   onChange={(event) =>
                     edit(index, { state: event.target.value as Word["state"] })
                   }
                 >
                   <option value="new">New</option>
-                  <option value="learning">Learning / queued</option>
+                  <option value="learning">Learning (local)</option>
+                  <option value="queued">In JyutDeck queue</option>
+                  <option value="unknown">Not checked</option>
                   <option value="known">Known</option>
                 </select>
               </label>
