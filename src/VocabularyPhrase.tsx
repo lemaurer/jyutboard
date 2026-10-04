@@ -4,7 +4,7 @@ export type VocabularySnapshot = {
   queued: string[];
   at: number;
 };
-export type HighlightMode = "off" | "always" | "created" | "hover" | "selected";
+export type HighlightMode = "off" | "always" | "created" | "selected";
 export const wordKey = (text: string) =>
   text
     .normalize("NFKC")
@@ -39,7 +39,6 @@ export function VocabularyPhrase({
 }) {
   const active =
     mode === "always" ||
-    mode === "hover" ||
     (mode === "selected" && selected) ||
     (mode === "created" && recent);
   // Only colour exact text ranges. Edited divisions must never rewrite the phrase.

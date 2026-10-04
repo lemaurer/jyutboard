@@ -20,6 +20,11 @@ export type TableRow = {
   answerChinese: string;
   answerJyutping: string;
   answerDefinition: string;
+  starred: boolean;
+  audio?: string;
+  audioName?: string;
+  mode?: CardMode;
+  receipt?: string;
 };
 export type CardMode =
   | "full"
@@ -139,6 +144,7 @@ export function createTableRow(fields: Partial<TableRow> = {}): TableRow {
     note: "",
     words: [],
     translation: "local",
+    starred: false,
     persona: "Natasha",
     avatar: "natasha",
     answerChinese: "",
@@ -227,6 +233,25 @@ const wordSchema = z.object({
   state: z.enum(["new", "learning", "known", "queued", "unknown"]).optional(),
 });
 export const tableRowSchema = z.object({
+  audio: z
+    .string()
+    .max(2_800_000)
+    .regex(/^data:audio\/[\w.+-]+(?:;[^,]*)?;base64,[A-Za-z0-9+/=]+$/)
+    .optional(),
+  audioName: z.string().max(200).optional(),
+  starred: z.boolean().default(false),
+  mode: z
+    .enum([
+      "full",
+      "compact",
+      "peek",
+      "characters",
+      "breakdown",
+      "practice",
+      "inline",
+    ])
+    .optional(),
+  receipt: z.string().max(500).optional(),
   persona: z.string().max(80).default("Natasha"),
   avatar: z.string().max(40).default("natasha"),
   answerChinese: z.string().max(2000).default(""),
@@ -327,6 +352,27 @@ export function validateRelay(value: string) {
       "Use a ws:// or wss:// relay address without credentials or query parameters.",
     );
   return value;
+}
+export function conversationPhrase(card: Card, row: TableRow): Card {
+  return createCard({
+    id: row.id,
+    chinese: row.chinese,
+    jyutping: row.jyutping,
+    definition: row.definition,
+    words: row.words,
+    translation: row.translation,
+    note: row.note,
+    starred: row.starred,
+    receipt: row.receipt,
+    audio: row.audio,
+    audioName: row.audioName,
+    mode: row.mode ?? card.mode,
+    hideEnglishForLearner: card.hideEnglishForLearner,
+    x: card.x,
+    y: card.y,
+    created: card.created,
+    shape: "bubble",
+  });
 }
 export function queuePayload(cards: Card[], session: Session) {
   // Let JyutDeck perform its canonical analysis. Its API cannot ingest audio.

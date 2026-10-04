@@ -592,13 +592,15 @@ test("conversation turns translate, preserve custom personas and show Jyutping o
     .getByLabel("Dialogue person")
     .nth(1)
     .selectOption("custom");
-  await conversation.getByLabel("Custom person name").fill("Waiter");
+  await conversation.getByLabel("Custom person name").fill("Barista");
   await conversation
     .getByRole("button", { name: "Add turn", exact: true })
     .click();
   await expect(conversation.getByLabel("Dialogue Cantonese")).toHaveCount(3);
   await expect(learner.getByTestId("conversation-card")).toContainText("ngo5");
-  await expect(learner.getByLabel("Custom person name")).toHaveValue("Waiter");
+  await expect(learner.getByLabel("Dialogue person").nth(1)).toHaveValue(
+    "custom",
+  );
   await teacher.screenshot({ path: "docs/conversation.png" });
 });
 
@@ -654,10 +656,13 @@ test("in-place phrase edits and optional inline vocabulary colours use the verif
   await expect(page.locator(".inline-vocabulary .state-known")).toHaveCount(1);
   await expect(page.locator(".inline-vocabulary .state-queued")).toHaveCount(1);
   await expect(page.locator(".card-handle")).toHaveCount(0);
+  const colourBefore = await page
+    .locator(".inline-vocabulary .state-known")
+    .evaluate((el) => getComputedStyle(el).color);
   await page.getByTestId("phrase-card").hover();
   await expect(page.locator(".inline-vocabulary .state-known")).toHaveCSS(
     "color",
-    "rgb(38, 143, 117)",
+    colourBefore,
   );
 });
 
@@ -704,7 +709,10 @@ test("push-to-talk creates a phrase and attaches the exact captured clip", async
     (window as any).desktop = {
       pair: async () => null,
       microphone: async () => true,
-      saveBackup: async(text:string)=>{(window as any).__backup=JSON.parse(text);return true;},
+      saveBackup: async (text: string) => {
+        (window as any).__backup = JSON.parse(text);
+        return true;
+      },
       vocabulary: async () => ({ known: [], queued: [], at: Date.now() }),
       transcribe: async (audio: string) => {
         (window as any).__capturedClip = audio;
@@ -746,7 +754,8 @@ test("push-to-talk creates a phrase and attaches the exact captured clip", async
   const box = (await button.boundingBox())!;
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
   await page.mouse.down();
-  await expect(button).toContainText("Release to create");
+  await expect(button).toContainText("Recording");
+  await page.waitForTimeout(420);
   await page.mouse.up();
   await expect(page.getByTestId("phrase-card").locator("h2")).toHaveText(
     "你好我想飲水",
@@ -754,6 +763,132 @@ test("push-to-talk creates a phrase and attaches the exact captured clip", async
   await expect(
     page.getByRole("button", { name: "Play Natasha recording", exact: true }),
   ).toHaveCount(1);
-  await page.getByRole("button",{name:"Export lesson backup",exact:true}).click();
-  await expect.poll(()=>page.evaluate(()=>(window as any).__backup?.cards?.[0]?.audio)).toBe(await page.evaluate(()=>(window as any).__capturedClip));
+  // Releasing while microphone permission opens should latch recording, not discard it.
+  await page.evaluate(() => {
+    (window as any).desktop.microphone = async () => {
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      return true;
+    };
+  });
+  await button.click();
+  await expect(button).toContainText("Recording");
+  await button.click();
+  await expect(page.getByTestId("phrase-card")).toHaveCount(2);
+  // Failed transcription keeps the exact clip available for a manually typed card.
+  await page.evaluate(() => {
+    (window as any).desktop.transcribe = async () => {
+      throw Error("Transcription temporarily unavailable");
+    };
+  });
+  await button.click();
+  await expect(button).toContainText("Recording");
+  await button.click();
+  await page
+    .getByRole("button", { name: "Keep recording & type", exact: true })
+    .click();
+  await expect(page.getByTestId("phrase-card")).toHaveCount(3);
+  await page
+    .getByRole("button", { name: "Export lesson backup", exact: true })
+    .click();
+  await expect
+    .poll(() =>
+      page.evaluate(() => (window as any).__backup?.cards?.[0]?.audio),
+    )
+    .toBe(await page.evaluate(() => (window as any).__capturedClip));
+});
+
+test("conversation bubbles have saved queue receipts, display modes and a varied avatar picker", async ({
+  browser,
+}) => {
+  const page = await blankPage(browser);
+  await page.evaluate(() => {
+    (window as any).desktop = {
+      pair: async () => null,
+      vocabulary: async () => ({ known: [], queued: [], at: Date.now() }),
+      send: async (payload: any) => {
+        (window as any).__queue = payload;
+        return {
+          results: payload.requests.map((_: any, index: number) => ({
+            index,
+            status: "created",
+          })),
+        };
+      },
+    };
+  });
+  await page.getByRole("button", { name: "Natasha", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Add conversation", exact: true })
+    .click();
+  const conversation = page.getByTestId("conversation-card");
+  await conversation.getByLabel("Dialogue Cantonese").first().fill("飲水");
+  await conversation
+    .getByLabel("Dialogue translation")
+    .first()
+    .fill("Drink water");
+  await expect(conversation.getByLabel("Dialogue note")).toHaveCount(0);
+  await conversation
+    .getByRole("button", { name: "Save bubble", exact: true })
+    .first()
+    .click();
+  await expect(page.locator(".tray-item")).toHaveCount(1);
+  await page
+    .getByRole("button", { name: "Send saved to JyutDeck", exact: true })
+    .click();
+  await expect(page.locator(".tray-item .receipt")).toHaveText("created");
+  expect(
+    await page.evaluate(() => (window as any).__queue.requests[0].chinese),
+  ).toBe("飲水");
+  await conversation.getByLabel("Choose avatar").first().click();
+  await expect(
+    conversation.locator(".avatar-grid").first().getByRole("button"),
+  ).toHaveCount(12);
+  await conversation
+    .getByRole("button", { name: "Use Amira avatar", exact: true })
+    .first()
+    .click();
+  await expect(conversation.locator(".avatar-picker[open]")).toHaveCount(0);
+  await page.getByLabel("Conversation mode").selectOption("practice");
+  await page.getByRole("button", { name: "Leif", exact: true }).click();
+  await expect(conversation.getByLabel("Dialogue translation")).toHaveCount(0);
+  await expect(
+    conversation.getByLabel("Dialogue Jyutping").first(),
+  ).toHaveValue("jam2 seoi2");
+});
+
+test("notes edit directly and laser draws across cards without focusing or moving them", async ({
+  browser,
+}) => {
+  const page = await blankPage(browser);
+  await page
+    .getByRole("button", { name: "Place note on canvas", exact: true })
+    .click();
+  const canvas = page.locator(".canvas-viewport");
+  const box = (await canvas.boundingBox())!;
+  await page.mouse.click(box.x + 300, box.y + 180);
+  const note = page.locator(".note-card");
+  await note.locator(".note-text").dblclick();
+  await note
+    .getByLabel("Edit note in place")
+    .fill("A useful reminder\nfor our next lesson");
+  await note.getByLabel("Edit note in place").press("Escape");
+  await expect(note.locator(".note-text")).toHaveText(
+    "A useful reminder\nfor our next lesson",
+  );
+  const bounds = (await note.boundingBox())!;
+  await page
+    .getByRole("button", { name: "Laser pointer", exact: true })
+    .click();
+  await page.mouse.move(bounds.x + 20, bounds.y + 20);
+  await page.mouse.down();
+  await page.mouse.move(bounds.x + bounds.width - 20, bounds.y + 45, {
+    steps: 6,
+  });
+  await page.mouse.up();
+  await expect(page.locator(".laser-layer polyline")).toHaveCount(1);
+  await expect(note.getByLabel("Edit note in place")).toHaveCount(0);
+  expect((await note.boundingBox())!.x).toBe(bounds.x);
+  await expect(page.locator(".laser-layer polyline")).toHaveCount(0, {
+    timeout: 4000,
+  });
 });

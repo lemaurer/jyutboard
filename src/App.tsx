@@ -55,6 +55,7 @@ import {
   connectorSchema,
   type Connector,
   createCard,
+  conversationPhrase,
   createTableRow,
   deleteTableRow,
   getTableRow,
@@ -180,7 +181,9 @@ export default function App() {
   const erasing = useRef(false);
   const gestureMoved = useRef(false);
   const [highlightMode, setHighlightMode] = useState<HighlightMode>(
-    loadPreference("vocabularyHighlight", "hover") as HighlightMode,
+    (loadPreference("vocabularyHighlight", "off") === "hover"
+      ? "off"
+      : loadPreference("vocabularyHighlight", "off")) as HighlightMode,
   );
   const [vocabulary, setVocabulary] = useState<VocabularySnapshot>();
   const [vocabularyMessage, setVocabularyMessage] = useState(
@@ -258,7 +261,15 @@ export default function App() {
   const active = cards.find((card) => card.id === selected);
   const activeRow = active?.rows.find((row) => row.id === selectedRow);
   const teacher = role === "teacher";
-  const stars = cards.filter((card) => card.starred && card.kind === "phrase");
+  const stars = cards.flatMap((card) =>
+    card.kind === "conversation"
+      ? card.rows
+          .filter((row) => row.starred)
+          .map((row) => conversationPhrase(card, row))
+      : card.starred && card.kind === "phrase"
+        ? [card]
+        : [],
+  );
   const hidden = active ? englishHidden(active, teacher) : false;
   const effectiveRightOpen = rightOpen || temporaryRight;
 
@@ -992,6 +1003,7 @@ export default function App() {
     }
   }
   function endPointer(event?: { clientX: number; clientY: number }) {
+    if (board.current) delete board.current.dataset.gesture;
     if (connectorDrag.current) {
       const from = connectorDrag.current.from;
       const location = event ? point(event) : connectorDrag.current.point;
@@ -1048,6 +1060,7 @@ export default function App() {
     beginDrag(event, ids);
   }
   function beginDrag(event: PointerEvent<Element>, ids: Set<string>) {
+    if (board.current) board.current.dataset.gesture = "drag";
     lesson.stopCapturing();
     gestureMoved.current = false;
     drag.current = {
@@ -1233,6 +1246,7 @@ export default function App() {
           lesson.stopCapturing();
           gestureMoved.current = false;
           const box = cardBox(card);
+          if (board.current) board.current.dataset.gesture = "resize";
           resizing.current = {
             card,
             start: point(event),
@@ -1566,7 +1580,18 @@ export default function App() {
           batch.length,
         );
         batch.forEach((card, index) =>
-          patchCard(doc, card.id, { receipt: receipts[index] }),
+          (() => {
+            const parent = cards.find(
+              (item) =>
+                item.kind === "conversation" &&
+                item.rows.some((row) => row.id === card.id),
+            );
+            if (parent)
+              patchTableRow(doc, parent.id, card.id, {
+                receipt: receipts[index],
+              });
+            else patchCard(doc, card.id, { receipt: receipts[index] });
+          })(),
         );
       }
       notify("Queue receipts updated. Check each phrase for its result.");
@@ -2367,6 +2392,9 @@ export default function App() {
                           onEnrich={(row) =>
                             doc && void enrichRow(doc, card.id, row)
                           }
+                          onSend={(row) =>
+                            void sendToQueue([conversationPhrase(card, row)])
+                          }
                           onSelect={(row) => selectCard(card.id, row.id)}
                           onAdd={() =>
                             doc &&
@@ -2539,7 +2567,37 @@ export default function App() {
                           </button>
                         )}
                         {card.kind === "note" ? (
-                          <div className="note-text">{card.definition}</div>
+                          editingCard === card.id ? (
+                            <textarea
+                              autoFocus
+                              className="note-text in-place-note"
+                              aria-label="Edit note in place"
+                              value={card.definition}
+                              maxLength={4000}
+                              onClick={(e) => e.stopPropagation()}
+                              onChange={(e) =>
+                                doc &&
+                                patchCard(doc, card.id, {
+                                  definition: e.target.value,
+                                })
+                              }
+                              onBlur={() => setEditingCard(null)}
+                              onKeyDown={(e) => {
+                                if (e.key === "Escape") e.currentTarget.blur();
+                              }}
+                            />
+                          ) : (
+                            <div
+                              className="note-text"
+                              title="Double-click to edit"
+                              onDoubleClick={(e) => {
+                                e.stopPropagation();
+                                setEditingCard(card.id);
+                              }}
+                            >
+                              {card.definition}
+                            </div>
+                          )
                         ) : (
                           <>
                             {editingCard === card.id ? (
@@ -2788,28 +2846,6 @@ export default function App() {
                 addPhrase();
               }}
             >
-              <div className="composer-label">
-                <label className="input-language">
-                  Write in{" "}
-                  <select
-                    aria-label="Input language"
-                    value={sourceLanguage}
-                    onChange={(event) =>
-                      setSourceLanguage(event.target.value as SourceLanguage)
-                    }
-                  >
-                    <option value="chinese">中文 · Chinese</option>
-                    <option value="jyutping">Jyutping</option>
-                    <option value="english">English</option>
-                  </select>
-                </label>
-                <button type="button" onClick={() => signal("Say that again?")}>
-                  ↻ Say that again
-                </button>
-              </div>
-              {teacher && (
-                <PushToTalk onPhrase={speechPhrase} notify={notify} />
-              )}
               <div className="composer-entry">
                 <textarea
                   aria-label="Cantonese phrase"
@@ -2844,6 +2880,25 @@ export default function App() {
                 >
                   <Plus size={17} /> Add phrase
                 </button>
+              </div>
+              <div className="composer-controls">
+                <label className="input-language">
+                  Write in{" "}
+                  <select
+                    aria-label="Input language"
+                    value={sourceLanguage}
+                    onChange={(event) =>
+                      setSourceLanguage(event.target.value as SourceLanguage)
+                    }
+                  >
+                    <option value="chinese">中文 · Chinese</option>
+                    <option value="jyutping">Jyutping</option>
+                    <option value="english">English</option>
+                  </select>
+                </label>
+                {teacher && (
+                  <PushToTalk onPhrase={speechPhrase} notify={notify} />
+                )}
               </div>
             </form>
           </section>
@@ -3067,6 +3122,35 @@ export default function App() {
                       <Trash2 size={13} />
                     </button>
                   </div>
+                  {active.kind === "conversation" && (
+                    <label>
+                      Conversation mode
+                      <select
+                        aria-label="Conversation mode"
+                        value={active.mode}
+                        onChange={(e) => {
+                          if (doc)
+                            doc.transact(() => {
+                              patchCard(doc, active.id, {
+                                mode: e.target.value as Card["mode"],
+                              });
+                              active.rows.forEach((row) =>
+                                patchTableRow(doc, active.id, row.id, {
+                                  mode: e.target.value as Card["mode"],
+                                }),
+                              );
+                            });
+                        }}
+                      >
+                        <option value="full">Language + English</option>
+                        <option value="practice">
+                          Practice · hide English
+                        </option>
+                        <option value="peek">English on hover</option>
+                        <option value="characters">Characters only</option>
+                      </select>
+                    </label>
+                  )}
                   {active.kind === "table" && (
                     <>
                       <label>
@@ -3279,6 +3363,50 @@ export default function App() {
                               }
                             />
                           </label>
+                          {active.kind === "conversation" && (
+                            <AudioRecorder
+                              audio={activeRow.audio}
+                              onAudio={(audio, audioName) =>
+                                doc &&
+                                patchTableRow(doc, active.id, activeRow.id, {
+                                  audio,
+                                  audioName,
+                                })
+                              }
+                              notify={notify}
+                            />
+                          )}
+                          {active.kind === "conversation" && (
+                            <>
+                              <button
+                                onClick={() =>
+                                  doc &&
+                                  patchTableRow(doc, active.id, activeRow.id, {
+                                    starred: !activeRow.starred,
+                                  })
+                                }
+                              >
+                                <Star size={14} />
+                                {activeRow.starred
+                                  ? "Unsave bubble"
+                                  : "Save bubble"}
+                              </button>
+                              <button
+                                disabled={sending || !activeRow.chinese.trim()}
+                                onClick={() =>
+                                  void sendToQueue([
+                                    conversationPhrase(active, activeRow),
+                                  ])
+                                }
+                              >
+                                <Send size={14} />
+                                Send bubble to JyutDeck
+                              </button>
+                              {activeRow.receipt && (
+                                <p className="receipt">{activeRow.receipt}</p>
+                              )}
+                            </>
+                          )}
                           <button
                             className="delete-action"
                             onClick={removeSelected}
@@ -3554,7 +3682,15 @@ export default function App() {
                         key={card.id}
                         className="tray-item"
                         onClick={() => {
-                          selectCard(card.id);
+                          const parent = cards.find(
+                            (item) =>
+                              item.kind === "conversation" &&
+                              item.rows.some((row) => row.id === card.id),
+                          );
+                          selectCard(
+                            parent?.id ?? card.id,
+                            parent ? card.id : null,
+                          );
                           viewport.current?.scrollTo({
                             left: Math.max(0, card.x * zoom - 40),
                             top: Math.max(0, card.y * zoom - 40),

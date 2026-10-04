@@ -2068,20 +2068,16 @@ small {
   background: transparent;
   transition: color 0.2s;
 }
-.highlight-enabled:not(.highlight-hover) .state-known,
-.phrase-card:hover .highlight-hover .state-known {
+.highlight-enabled .state-known {
   color: #268f75;
 }
-.highlight-enabled:not(.highlight-hover) .state-queued,
-.phrase-card:hover .highlight-hover .state-queued {
+.highlight-enabled .state-queued {
   color: #b77714;
 }
-.highlight-enabled:not(.highlight-hover) .state-new,
-.phrase-card:hover .highlight-hover .state-new {
+.highlight-enabled .state-new {
   color: #d75e83;
 }
-.highlight-enabled:not(.highlight-hover) .state-unknown,
-.phrase-card:hover .highlight-hover .state-unknown {
+.highlight-enabled .state-unknown {
   text-decoration: underline dotted #b8c0cf;
   text-underline-offset: 4px;
 }
@@ -2398,12 +2394,252 @@ small {
 .practice-mask {
   display: none;
 }
-.table-card:hover .highlight-hover .state-known {
-  color: #268f75;
+
+/* Cursor targets remain stable while crossing text, SVGs, and quiet controls. */
+.canvas.tool-select .board-card {
+  cursor: grab;
 }
-.table-card:hover .highlight-hover .state-queued {
-  color: #b77714;
+.canvas.tool-select
+  .board-card
+  :is(h2, strong, span, p, .note-text, .person-avatar) {
+  cursor: inherit;
 }
-.table-card:hover .highlight-hover .state-new {
-  color: #d75e83;
+.canvas .board-card :is(input, textarea) {
+  cursor: text;
+}
+.canvas .board-card :is(button, select, summary) {
+  cursor: pointer;
+}
+button > svg,
+summary > svg,
+.shape-bubble::before,
+.dialogue-bubble::before {
+  pointer-events: none;
+}
+.canvas.tool-laser,
+.canvas.tool-laser * {
+  cursor: crosshair !important;
+}
+.canvas.tool-laser * {
+  pointer-events: none !important;
+}
+.in-place-note {
+  width: 100%;
+  min-height: 75px;
+  border: 0;
+  background: transparent;
+  resize: vertical;
+  font: inherit;
+  color: inherit;
+}
+.composer {
+  padding: 8px 18px 5px;
+}
+.composer-controls {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 28px;
+}
+.composer-controls .input-language {
+  font-size: 10px;
+}
+.composer-controls .push-to-talk {
+  margin: 0;
+  padding: 0;
+}
+.composer-controls .push-to-talk button {
+  font-size: 11px;
+  padding: 3px 7px;
+}
+.recording-active {
+  color: #ca405f !important;
+  background: #fff0f3 !important;
+}
+.avatar-picker {
+  position: relative;
+}
+.avatar-picker > summary {
+  list-style: none;
+  display: block;
+  border-radius: 50%;
+}
+.avatar-picker > summary::-webkit-details-marker,
+.bubble-menu > summary::-webkit-details-marker {
+  display: none;
+}
+.avatar-grid {
+  position: absolute;
+  z-index: 30;
+  top: 60px;
+  left: -18px;
+  width: 222px;
+  padding: 10px;
+  background: white;
+  border: 1px solid #dee6f0;
+  border-radius: 14px;
+  box-shadow: 0 8px 28px #253a5522;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 5px;
+}
+.avatar-grid button {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  aspect-ratio: 1;
+  border-radius: 50%;
+}
+.avatar-grid button:hover {
+  outline: 2px solid #9eb5f6;
+}
+.dialogue-person :is(select, input) {
+  width: 100%;
+  min-height: 20px;
+  font-size: 10px;
+}
+.dialogue-bubble textarea {
+  min-height: 28px;
+  height: 30px;
+  field-sizing: content;
+  overflow: hidden;
+  resize: none;
+  line-height: 1.45;
+  cursor: text;
+}
+.dialogue-bubble.bubble-mode-characters {
+  background: transparent;
+  border-color: transparent;
+  padding: 4px 8px;
+}
+.dialogue-bubble.bubble-mode-characters::before {
+  display: none;
+}
+.bubble-peek-meaning {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  opacity: 0;
+  pointer-events: none;
+  z-index: 12;
+  background: white !important;
+  padding: 7px 10px !important;
+  border: 1px solid #dde6f3 !important;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px #23334b11;
+}
+.dialogue-bubble:hover .bubble-peek-meaning,
+.bubble-peek-meaning:focus {
+  opacity: 1;
+  pointer-events: auto;
+}
+.bubble-star {
+  position: absolute;
+  right: -23px;
+  top: 3px;
+  padding: 2px;
+  border: 0;
+  background: transparent;
+  color: #a3adc1;
+  opacity: 0;
+  pointer-events: none;
+}
+.dialogue-turn:hover .bubble-star,
+.bubble-star:focus-visible,
+.bubble-star.is-starred {
+  opacity: 1;
+  pointer-events: auto;
+}
+.bubble-star.is-starred {
+  color: #d5a23a;
+}
+.bubble-menu {
+  position: absolute;
+  right: -23px;
+  bottom: 1px;
+  z-index: 15;
+}
+.bubble-menu > summary {
+  list-style: none;
+  line-height: 1;
+  padding: 2px;
+  opacity: 0;
+}
+.dialogue-turn:hover .bubble-menu > summary,
+.bubble-menu[open] > summary,
+.bubble-menu:focus-within > summary {
+  opacity: 1;
+}
+.bubble-menu > div {
+  position: absolute;
+  top: 22px;
+  right: 0;
+  width: 195px;
+  padding: 9px;
+  display: grid;
+  gap: 8px;
+  border: 1px solid #dee6f0;
+  background: white;
+  border-radius: 10px;
+  box-shadow: 0 6px 22px #253a5522;
+}
+.bubble-menu :is(label, button, select) {
+  font-size: 11px;
+}
+.bubble-menu button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border: 0;
+  background: #f5f7fc;
+}
+
+.canvas.tool-select .board-card :is(input, textarea) {
+  cursor: text !important;
+}
+.canvas.tool-laser .board-card * {
+  cursor: crosshair !important;
+}
+.bubble-audio {
+  position: absolute;
+  bottom: 4px;
+  left: -23px;
+  border: 0;
+  background: transparent;
+  color: #6c8fc8;
+  padding: 2px;
+}
+
+.custom-person-name {
+  position: relative;
+}
+.dialogue-person .custom-person-name input {
+  padding-right: 10px;
+}
+.dialogue-person .custom-person-name select {
+  position: absolute;
+  right: -4px;
+  top: 0;
+  width: 13px;
+  color: transparent;
+}
+.dialogue-person .custom-person-name option {
+  color: #35445a;
+}
+
+.canvas[data-gesture="drag"],
+.canvas[data-gesture="drag"] * {
+  cursor: grabbing !important;
+}
+.canvas[data-gesture="resize"],
+.canvas[data-gesture="resize"] * {
+  cursor: nwse-resize !important;
+}
+/* Keep the star hit target present so crossing its edge cannot toggle cursors. */
+.bubble-star {
+  pointer-events: auto;
+}
+.bubble-star:hover {
+  opacity: 1;
 }

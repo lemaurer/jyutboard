@@ -1,7 +1,13 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { vocabularyState, wordKey } from "../src/VocabularyPhrase";
-import { createCard, createTableRow, cardSchema } from "../src/model";
+import {
+  createCard,
+  createTableRow,
+  cardSchema,
+  conversationPhrase,
+  queuePayload,
+} from "../src/model";
 test("verified JyutDeck states override local guesses, known wins over queue and unavailable is not new", () => {
   const snapshot = {
     known: ["你好！"],
@@ -37,4 +43,29 @@ test("conversation personas and paired table text round-trip without losing fiel
   assert.equal(parsed.rows[0].persona, "Waiter");
   assert.equal(parsed.rows[0].answerChinese, "奶茶");
   assert.equal(parsed.tableStyle, "minimal");
+});
+
+test("conversation bubbles become stable queue phrases with their own saved state and hidden meaning", () => {
+  const row = createTableRow({
+    chinese: "飲水",
+    jyutping: "jam2 seoi2",
+    definition: "drink water",
+    starred: true,
+    mode: "practice",
+    receipt: "created",
+  });
+  const conversation = createCard({ kind: "conversation", rows: [row] });
+  const bubble = conversationPhrase(conversation, row);
+  assert.equal(bubble.id, row.id);
+  assert.equal(bubble.starred, true);
+  assert.equal(bubble.mode, "practice");
+  assert.equal(bubble.receipt, "created");
+  const request = queuePayload([bubble], {
+    id: "room",
+    title: "Dialogue",
+    created: 1,
+  }).requests[0];
+  assert.equal(request.chinese, "飲水");
+  assert.equal(request.metadata.cardId, row.id);
+  assert.equal(cardSchema.parse(conversation).rows[0].starred, true);
 });

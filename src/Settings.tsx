@@ -18,7 +18,9 @@ export function Settings({
   setHighlightMode: (value: HighlightMode) => void;
   vocabularyMessage: string;
 }) {
-  const [url, setUrl] = useState("https://jyutdeck-live-jul08f.vercel.app/api/v1/requests");
+  const [url, setUrl] = useState(
+    "https://jyutdeck-live-jul08f.vercel.app/api/v1/requests",
+  );
   const [token, setToken] = useState("");
   const [google, setGoogle] = useState("");
   const [hasToken, setHasToken] = useState(false);
@@ -97,7 +99,6 @@ export function Settings({
             <option value="off">Off</option>
             <option value="always">Always</option>
             <option value="created">First five seconds</option>
-            <option value="hover">On hover</option>
             <option value="selected">When selected</option>
           </select>
         </label>
