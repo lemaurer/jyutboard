@@ -2,7 +2,9 @@
 
 A live teaching canvas for learning Cantonese together. Natasha writes naturally in Chinese; Leif sees Jyutping first. Both views share movable phrase cards, dense phrase tables, notes, drawings, pronunciation recordings, and a session tray.
 
-**[Download for Mac](../../releases/latest)** · Windows installers are available in each GitHub Actions build and in tagged releases.
+**[Download for Mac](../../releases/latest)** · **[Download for Windows](../../releases/latest)**
+
+On Windows, open the latest release and download the **`JyutBoard.Setup.<version>.exe`** installer from **Assets**.
 
 ![JyutBoard teaching desk](docs/teaching-desk.png)
 
