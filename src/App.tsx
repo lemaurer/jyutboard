@@ -291,6 +291,20 @@ export default function App() {
   const board = useRef<HTMLDivElement>(null);
   const viewport = useRef<HTMLDivElement>(null);
   const tabletGestures = useRef<TabletGestures | null>(null);
+  const tabletTap = useRef<{
+    pointer: number;
+    id?: string;
+    target: HTMLElement;
+    x: number;
+    y: number;
+    moved: boolean;
+  } | null>(null);
+  const lastTabletTap = useRef<{
+    id: string;
+    x: number;
+    y: number;
+    time: number;
+  } | null>(null);
   const toolRef = useRef(tool);
   toolRef.current = tool;
   const navigationRef = useRef({ stopFollowing, publishView, selectedItems });
@@ -313,6 +327,8 @@ export default function App() {
     zoomRef.current = view.zoom;
     node.scrollLeft = view.x;
     node.scrollTop = view.y;
+    view.x = node.scrollLeft;
+    view.y = node.scrollTop;
     navigationRef.current.publishView();
     if (commit) {
       camera.current = null;
@@ -344,18 +360,33 @@ export default function App() {
         const id =
           target.closest<HTMLElement>("[data-card-id]")?.dataset.cardId ||
           target.closest<SVGElement>("[data-stroke-id]")?.dataset.strokeId;
-        return Boolean(id && navigationRef.current.selectedItems.has(id));
+        return Boolean(
+          id &&
+          (event.pointerType === "touch" ||
+            navigationRef.current.selectedItems.has(id)) &&
+          !["laser", "erase"].includes(toolRef.current),
+        );
       },
     );
     const releasePen = (event: globalThis.PointerEvent) =>
       tabletGestures.current?.releasePen(event);
+    const stopCoast = (event: globalThis.PointerEvent) => {
+      if (
+        (event.pointerType === "touch" || event.pointerType === "pen") &&
+        !node.contains(event.target as Node)
+      )
+        tabletGestures.current?.stop();
+    };
+    window.addEventListener("pointerdown", stopCoast, true);
     window.addEventListener("pointerup", releasePen);
     window.addEventListener("pointercancel", releasePen);
     return () => {
+      window.removeEventListener("pointerdown", stopCoast, true);
       window.removeEventListener("pointerup", releasePen);
       window.removeEventListener("pointercancel", releasePen);
       cancelAnimationFrame(cameraFrame.current);
       clearTimeout(cameraCommit.current);
+      tabletGestures.current?.dispose();
       tabletGestures.current = null;
     };
   }, []);
@@ -1139,6 +1170,11 @@ export default function App() {
       const snapshot = drag.current;
       const dx = x - snapshot.start[0],
         dy = y - snapshot.start[1];
+      if (
+        !gestureMoved.current &&
+        Math.hypot(dx, dy) < (tablet ? 8 / zoomRef.current : 2)
+      )
+        return;
       if (Math.abs(dx) + Math.abs(dy) > 2) {
         gestureMoved.current = true;
         board.current?.setPointerCapture(event.pointerId);
@@ -1299,6 +1335,52 @@ export default function App() {
       lesson.stopCapturing();
     }
   }
+  function finishTabletTap(event: PointerEvent<Element>) {
+    const tap = tabletTap.current;
+    if (!tap || tap.pointer !== event.pointerId) return;
+    tabletTap.current = null;
+    if (
+      ["phrase", "note", "table", "sticker", "laser", "erase"].includes(tool)
+    ) {
+      lastTabletTap.current = null;
+      return;
+    }
+    if (
+      tap.moved ||
+      Math.hypot(event.clientX - tap.x, event.clientY - tap.y) > 8
+    ) {
+      lastTabletTap.current = null;
+      return;
+    }
+    if (!tap.id) {
+      clearSelection();
+      setEditingCard(null);
+      (document.activeElement as HTMLElement | null)?.blur();
+      lastTabletTap.current = null;
+      return;
+    }
+    const previous = lastTabletTap.current;
+    if (
+      previous?.id === tap.id &&
+      performance.now() - previous.time < 350 &&
+      Math.hypot(tap.x - previous.x, tap.y - previous.y) < 24
+    ) {
+      const card = cards.find((card) => card.id === tap.id);
+      if (card?.kind === "phrase" || card?.kind === "note")
+        setEditingCard(card.id);
+      else
+        tap.target
+          .closest<HTMLElement>("input,textarea,[contenteditable=true]")
+          ?.focus({ preventScroll: true });
+      lastTabletTap.current = null;
+    } else
+      lastTabletTap.current = {
+        id: tap.id,
+        x: tap.x,
+        y: tap.y,
+        time: performance.now(),
+      };
+  }
   function startDrag(event: PointerEvent<Element>, card: Card) {
     if (
       tool !== "select" ||
@@ -1318,8 +1400,11 @@ export default function App() {
     drag.current = {
       start: point(event),
       editTarget:
-        (event.target as HTMLElement).closest<HTMLElement>("input,textarea") ??
-        undefined,
+        tablet && event.pointerType === "touch"
+          ? undefined
+          : ((event.target as HTMLElement).closest<HTMLElement>(
+              "input,textarea",
+            ) ?? undefined),
       cards: cards.filter((card) => ids.has(card.id)),
       strokes: strokes.filter((stroke) => ids.has(stroke.id)),
     };
@@ -2531,9 +2616,30 @@ export default function App() {
               className="canvas-viewport"
               ref={viewport}
               onPointerDownCapture={(e) => {
+                if (tablet && e.pointerType === "touch") {
+                  const target = e.target as HTMLElement;
+                  if (
+                    !target.closest("button,select,audio,summary") &&
+                    target !== document.activeElement
+                  )
+                    tabletTap.current = {
+                      pointer: e.pointerId,
+                      id:
+                        target.closest<HTMLElement>("[data-card-id]")?.dataset
+                          .cardId ||
+                        target.closest<SVGElement>("[data-stroke-id]")?.dataset
+                          .strokeId,
+                      target,
+                      x: e.clientX,
+                      y: e.clientY,
+                      moved: false,
+                    };
+                }
                 const gestures = tabletGestures.current;
                 if (gestures?.down(e.nativeEvent)) {
                   if (gestures.navigationActive) {
+                    if (gestures.multipleContacts) tabletTap.current = null;
+                    lastTabletTap.current = null;
                     cancelDrag();
                     lasso.current = null;
                     setLassoPath([]);
@@ -2542,7 +2648,7 @@ export default function App() {
                     setSelectionRect(null);
                     if (path.current || laser.current || erasing.current)
                       endPointer();
-                  }
+                  } else tabletTap.current = null;
                   e.preventDefault();
                   e.stopPropagation();
                   return;
@@ -2563,10 +2669,23 @@ export default function App() {
                 const id = cardId || strokeId;
                 if (
                   id &&
-                  selectedItems.has(id) &&
+                  (selectedItems.has(id) || e.pointerType === "touch") &&
+                  !["laser", "erase"].includes(tool) &&
                   (e.pointerType === "touch" || tool === "select")
                 ) {
-                  beginDrag(e, selectedItems);
+                  const ids = selectedItems.has(id)
+                    ? selectedItems
+                    : new Set([id]);
+                  if (!selectedItems.has(id)) {
+                    if (cardId) selectCard(cardId);
+                    else {
+                      setSelectedItems(ids);
+                      setSelected(null);
+                      setSelectedRow(null);
+                      setSelectedStroke(id);
+                    }
+                  }
+                  beginDrag(e, ids);
                   e.currentTarget.setPointerCapture(e.pointerId);
                   e.preventDefault();
                   e.stopPropagation();
@@ -2574,7 +2693,7 @@ export default function App() {
                 }
                 if (
                   e.pointerType === "pen" &&
-                  cardId &&
+                  (cardId || strokeId) &&
                   ["draw", "highlight", "arrow"].includes(tool)
                 ) {
                   beginInk(e);
@@ -2592,20 +2711,41 @@ export default function App() {
                 }
               }}
               onPointerMoveCapture={(e) => {
+                const tap = tabletTap.current;
+                if (
+                  tap &&
+                  tap.pointer === e.pointerId &&
+                  Math.hypot(e.clientX - tap.x, e.clientY - tap.y) > 8
+                )
+                  tap.moved = true;
                 if (tabletGestures.current?.move(e.nativeEvent)) {
                   e.preventDefault();
+                  e.stopPropagation();
+                } else if (tablet && (drag.current || lasso.current)) {
+                  pointerMove(e);
                   e.stopPropagation();
                 }
               }}
               onPointerUpCapture={(e) => {
-                if (tabletGestures.current?.up(e.nativeEvent)) {
+                const navigation = tabletGestures.current?.up(e.nativeEvent);
+                if (tablet && (drag.current || lasso.current)) {
+                  endPointer(e);
                   e.stopPropagation();
                 }
+                if (navigation) e.stopPropagation();
+                if (tablet && e.pointerType === "touch") finishTabletTap(e);
               }}
               onPointerCancelCapture={(e) => {
-                if (tabletGestures.current?.up(e.nativeEvent)) {
+                const navigation = tabletGestures.current?.up(e.nativeEvent);
+                tabletTap.current = null;
+                lastTabletTap.current = null;
+                if (tablet && (drag.current || lasso.current)) {
+                  cancelDrag();
+                  lasso.current = null;
+                  setLassoPath([]);
                   e.stopPropagation();
                 }
+                if (navigation) e.stopPropagation();
               }}
             >
               <div

@@ -3085,11 +3085,13 @@ summary > svg,
   .composer-controls {
     display: none;
   }
-  .tablet-canvas.tool-draw .board-card.selected,
-  .tablet-canvas.tool-highlight .board-card.selected,
-  .tablet-canvas.tool-arrow .board-card.selected,
-  .tablet-canvas.tool-erase .board-card.selected {
-    pointer-events: auto;
+  .tablet-canvas.tool-draw .board-card,
+  .tablet-canvas.tool-highlight .board-card,
+  .tablet-canvas.tool-arrow .board-card,
+  .tablet-canvas.tool-draw .board-card *,
+  .tablet-canvas.tool-highlight .board-card *,
+  .tablet-canvas.tool-arrow .board-card * {
+    pointer-events: auto !important;
   }
   .tablet-canvas .board-card {
     touch-action: none;

@@ -307,17 +307,15 @@ test("iPad lasso selects a group and drags it without scrolling or opening detai
       ),
     ).toEqual(before);
     const selectedBox = (await cards.first().boundingBox())!;
-    await cards
-      .first()
-      .dispatchEvent("pointerdown", {
-        pointerId: 20,
-        pointerType: "pen",
-        clientX: selectedBox.x + 20,
-        clientY: selectedBox.y + 15,
-        bubbles: true,
-        buttons: 1,
-        pressure: 0.3,
-      });
+    await cards.first().dispatchEvent("pointerdown", {
+      pointerId: 20,
+      pointerType: "pen",
+      clientX: selectedBox.x + 20,
+      clientY: selectedBox.y + 15,
+      bubbles: true,
+      buttons: 1,
+      pressure: 0.3,
+    });
     await pointer(
       page,
       "pointermove",
@@ -423,6 +421,132 @@ test("Safari keyboard resize and offset keep the composer and modal in the visib
       v.dispatchEvent(new Event("resize"));
     });
     await expect(page.locator(".app")).toHaveCSS("height", "768px");
+  } finally {
+    await context.close();
+  }
+});
+
+test("iPad touch selects, drags through captured viewport events, double-taps to edit and taps canvas to deselect", async () => {
+  const { page, context } = await tablet();
+  try {
+    await page.goto(
+      `/#room=${"9".repeat(48)}&relay=${encodeURIComponent(`ws://127.0.0.1:${relay.port}`)}`,
+    );
+    await page.getByLabel("Your lesson view").selectOption("teacher");
+    await page.getByLabel("Cantonese phrase").fill("你好");
+    await page.getByRole("button", { name: "Add phrase", exact: true }).click();
+    const card = page.getByTestId("phrase-card");
+    const area = page.locator(".canvas-viewport");
+    await page.getByRole("button", { name: "Draw", exact: true }).click();
+    const blank = (await area.boundingBox())!;
+    await page.touchscreen.tap(blank.x + 25, blank.y + 150);
+    await expect(card).not.toHaveClass(/selected/);
+    let box = (await card.boundingBox())!;
+    await page.touchscreen.tap(box.x + 30, box.y + 25);
+    await expect(card).toHaveClass(/selected/);
+    await expect(page.getByLabel("Edit phrase in place")).toHaveCount(0);
+    const scroll = await area.evaluate((el) => ({
+      x: el.scrollLeft,
+      y: el.scrollTop,
+    }));
+    const left = await card.evaluate((el) =>
+      parseFloat((el as HTMLElement).style.left),
+    );
+    // Actual pointer capture targets the viewport rather than a card or canvas.
+    await card.dispatchEvent("pointerdown", {
+      pointerId: 91,
+      pointerType: "touch",
+      clientX: box.x + 30,
+      clientY: box.y + 25,
+      bubbles: true,
+      buttons: 1,
+      isPrimary: true,
+    });
+    await area.dispatchEvent("pointermove", {
+      pointerId: 91,
+      pointerType: "touch",
+      clientX: box.x + 90,
+      clientY: box.y + 45,
+      bubbles: true,
+      buttons: 1,
+    });
+    await area.dispatchEvent("pointerup", {
+      pointerId: 91,
+      pointerType: "touch",
+      clientX: box.x + 90,
+      clientY: box.y + 45,
+      bubbles: true,
+      buttons: 0,
+    });
+    expect(
+      await card.evaluate((el) => parseFloat((el as HTMLElement).style.left)),
+    ).toBeCloseTo(left + 60, 0);
+    expect(
+      await area.evaluate((el) => ({ x: el.scrollLeft, y: el.scrollTop })),
+    ).toEqual(scroll);
+    await expect(page.getByTestId("drawing")).toHaveCount(0);
+    box = (await card.boundingBox())!;
+    await page.touchscreen.tap(box.x + 30, box.y + 25);
+    await page.touchscreen.tap(box.x + 30, box.y + 25);
+    await expect(page.getByLabel("Edit phrase in place")).toBeFocused();
+    await page.getByLabel("Edit phrase in place").fill("飲水");
+    const empty = (await area.boundingBox())!;
+    await page.touchscreen.tap(empty.x + 25, empty.y + 150);
+    await expect(card).not.toHaveClass(/selected/);
+    await expect(page.getByLabel("Edit phrase in place")).toHaveCount(0);
+    await expect(card.locator("h2")).toHaveText("飲水");
+    await page
+      .getByRole("button", { name: "Place note on canvas", exact: true })
+      .click();
+    const spot = (await area.boundingBox())!;
+    await page.touchscreen.tap(spot.x + 140, spot.y + 240);
+    const placedNote = (await page.locator(".note-card").boundingBox())!;
+    await page.touchscreen.tap(placedNote.x + 30, placedNote.y + 25);
+    await page.touchscreen.tap(placedNote.x + 30, placedNote.y + 25);
+    await page.getByLabel("Edit note in place").fill("Remember the tone");
+    await page.getByLabel("Edit note in place").press("Escape");
+    await page.getByRole("button", { name: "Draw", exact: true }).click();
+    const note = page.locator(".note-card");
+    const noteBox = (await note.boundingBox())!;
+    await page.touchscreen.tap(noteBox.x + 30, noteBox.y + 25);
+    await page.touchscreen.tap(noteBox.x + 30, noteBox.y + 25);
+    await expect(page.getByLabel("Edit note in place")).toBeFocused();
+    await expect(page.getByLabel("Edit note in place")).toHaveValue(
+      "Remember the tone",
+    );
+    await expect(page.locator(".inspector")).toHaveCount(0);
+  } finally {
+    await context.close();
+  }
+});
+
+test("iPad pan glides after release and a new touch stops the glide", async () => {
+  const { page, context } = await tablet();
+  try {
+    await page.goto(
+      `/#room=${"8".repeat(48)}&relay=${encodeURIComponent(`ws://127.0.0.1:${relay.port}`)}`,
+    );
+    await page.getByRole("button", { name: "Draw", exact: true }).click();
+    const area = page.locator(".canvas-viewport"),
+      box = (await area.boundingBox())!;
+    const x = box.x + 400,
+      y = box.y + 200;
+    await pointer(page, "pointerdown", 1, x, y);
+    await page.waitForTimeout(20);
+    await pointer(page, "pointermove", 1, x - 30, y);
+    await page.waitForTimeout(20);
+    await pointer(page, "pointermove", 1, x - 65, y);
+    await pointer(page, "pointerup", 1, x - 65, y);
+    const released = await area.evaluate((el) => el.scrollLeft);
+    await expect
+      .poll(() => area.evaluate((el) => el.scrollLeft))
+      .toBeGreaterThan(released + 12);
+    await pointer(page, "pointerdown", 1, x - 65, y);
+    await page.waitForTimeout(32);
+    const stopped = await area.evaluate((el) => el.scrollLeft);
+    await page.waitForTimeout(120);
+    expect(await area.evaluate((el) => el.scrollLeft)).toBe(stopped);
+    await pointer(page, "pointerup", 1, x - 65, y);
   } finally {
     await context.close();
   }
