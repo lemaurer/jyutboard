@@ -86,11 +86,15 @@
       "icon": "build/icon.png"
     },
     "nsis": {
+      "artifactName": "JyutBoard-Setup.${ext}",
       "oneClick": false,
       "allowToChangeInstallationDirectory": true
     },
     "linux": {
       "target": "AppImage"
+    },
+    "portable": {
+      "artifactName": "JyutBoard-Portable.${ext}"
     }
   }
 }
