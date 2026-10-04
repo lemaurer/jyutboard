@@ -23,34 +23,40 @@ function validPresence(value: Presence): boolean {
       number <= max);
   return Boolean(
     value &&
-      typeof value.id === "string" &&
-      value.id.length <= 100 &&
-      ["teacher", "learner"].includes(value.role) &&
-      validPoint(value.x, 5600) &&
-      validPoint(value.y, 3600) &&
-      (value.view === undefined ||
-        (typeof value.view.x === "number" &&
-          typeof value.view.y === "number" &&
-          typeof value.view.zoom === "number" &&
-          value.view.zoom >= 0.35 &&
-          validPoint(value.view.x, 5600) &&
-          validPoint(value.view.y, 3600) &&
-          validPoint(value.view.zoom, 2.5))) &&
-      (value.attentionAt === undefined ||
-        validPoint(value.attentionAt, Date.now() + 60000)) &&
-      (value.laser === undefined ||
-        (typeof value.laser.at === "number" &&
-          value.laser.at <= Date.now() + 60000 &&
-          Array.isArray(value.laser.points) &&
-          value.laser.points.length <= 96 &&
-          value.laser.points.every(
-            (point) =>
-              Array.isArray(point) &&
-              point.length === 2 &&
-              validPoint(point[0], 5600) &&
-              validPoint(point[1], 3600),
-          ))) &&
-      (value.presenting === undefined || typeof value.presenting === "boolean"),
+    typeof value.id === "string" &&
+    value.id.length <= 100 &&
+    ["teacher", "learner"].includes(value.role) &&
+    validPoint(value.x, 5600) &&
+    validPoint(value.y, 3600) &&
+    (value.view === undefined ||
+      (typeof value.view.x === "number" &&
+        typeof value.view.y === "number" &&
+        typeof value.view.zoom === "number" &&
+        value.view.zoom >= 0.35 &&
+        validPoint(value.view.x, 5600) &&
+        validPoint(value.view.y, 3600) &&
+        validPoint(value.view.zoom, 2.5))) &&
+    (value.attentionAt === undefined ||
+      validPoint(value.attentionAt, Date.now() + 60000)) &&
+    (value.laser === undefined ||
+      (typeof value.laser.at === "number" &&
+        value.laser.at <= Date.now() + 60000 &&
+        Array.isArray(value.laser.points) &&
+        value.laser.points.length <= 96 &&
+        value.laser.points.every(
+          (point) =>
+            Array.isArray(point) &&
+            point.length === 2 &&
+            validPoint(point[0], 5600) &&
+            validPoint(point[1], 3600),
+        ))) &&
+    (value.ink === undefined ||
+      value.ink === null ||
+      (typeof value.ink.at === "number" &&
+        value.ink.at <= Date.now() + 60000 &&
+        value.ink.stroke?.points?.length <= 100 &&
+        strokeSchema.safeParse(value.ink.stroke).success)) &&
+    (value.presenting === undefined || typeof value.presenting === "boolean"),
   );
 }
 export function useLesson(session: Session, role: Role) {

@@ -31,7 +31,12 @@ export function PushToTalk({
   }
   useEffect(() => {
     mounted.current = true;
+    const onHide = () => {
+      if (document.visibilityState === "hidden") stop();
+    };
+    document.addEventListener("visibilitychange", onHide);
     return () => {
+      document.removeEventListener("visibilitychange", onHide);
       mounted.current = false;
       cancelled.current = true;
       clearTimeout(timer.current);

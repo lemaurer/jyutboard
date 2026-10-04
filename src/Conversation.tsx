@@ -28,8 +28,7 @@ export function Conversation({
     <div className="conversation-turns">
       {card.rows.map((row, index) => {
         const mode = row.mode ?? card.mode;
-        const showEnglish =
-          !hidden && (teacher || mode !== "practice") && mode !== "characters";
+        const showEnglish = mode !== "practice";
         const custom = !PERSONAS.some((p) => p.name === row.persona);
         return (
           <div
@@ -114,6 +113,9 @@ export function Conversation({
                 }
                 onBlur={() => teacher && onEnrich(row)}
               />
+              {!teacher && mode === "full" && row.chinese && (
+                <p className="card-secondary">{row.chinese}</p>
+              )}
               {showEnglish && (
                 <input
                   className={mode === "peek" ? "bubble-peek-meaning" : ""}
@@ -161,10 +163,9 @@ export function Conversation({
                         onChange(row, { mode: e.target.value as Card["mode"] })
                       }
                     >
-                      <option value="full">Language + English</option>
-                      <option value="practice">Practice · hide English</option>
-                      <option value="peek">English on hover</option>
-                      <option value="characters">Characters only</option>
+                      <option value="full">Standard</option>
+                      <option value="peek">Compact</option>
+                      <option value="practice">Practice</option>
                     </select>
                   </label>
                   <button

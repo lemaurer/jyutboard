@@ -72,6 +72,7 @@ export type Stroke = {
   arrow: boolean;
   width?: number;
   opacity?: number;
+  pressures?: number[];
 };
 export type Connector = {
   id: string;
@@ -95,6 +96,7 @@ export type Presence = {
   signal?: string;
   attentionAt?: number;
   presenting?: boolean;
+  ink?: { stroke: Stroke; at: number } | null;
   laser?: { points: [number, number][]; at: number };
   view?: { x: number; y: number; zoom: number };
   at: number;
@@ -319,7 +321,21 @@ export function readCards(doc: Y.Doc): Card[] {
       const result = cardSchema.safeParse(
         map instanceof Y.Map ? map.toJSON() : null,
       );
-      return result.success ? [result.data] : [];
+      return result.success
+        ? [
+            {
+              ...result.data,
+              mode: normalizeMode(
+                result.data.mode,
+                result.data.hideEnglishForLearner,
+              ),
+              rows: result.data.rows.map((row) => ({
+                ...row,
+                mode: row.mode ? normalizeMode(row.mode) : undefined,
+              })),
+            },
+          ]
+        : [];
     })
     .sort((a, b) => a.created - b.created);
 }
@@ -330,7 +346,10 @@ export function inviteFor(room: string, relay: string) {
 }
 export function parseInvite(value: string) {
   const url = new URL(value.trim());
-  if (url.protocol !== "jyutboard:" || url.hostname !== "join")
+  if (!(
+    (url.protocol === "jyutboard:" && url.hostname === "join") ||
+    (url.protocol === "https:" && url.pathname === "/")
+  ))
     throw new Error("Paste a JyutBoard invitation.");
   const p = new URLSearchParams(url.hash.slice(1));
   const room = p.get("room") ?? "";
@@ -435,6 +454,7 @@ export function parseReceipts(payload: unknown, count: number): string[] {
 }
 
 export const strokeSchema = z.object({
+  pressures: z.array(z.number().min(0).max(1)).max(5000).optional(),
   id: z.string().max(100),
   points: z
     .array(z.tuple([z.number().min(0).max(5600), z.number().min(0).max(3600)]))
@@ -453,3 +473,10 @@ export const connectorSchema = z
     width: z.number().min(1).max(12),
   })
   .refine((value) => value.from !== value.to);
+
+// Keep existing wire values so older desktop lessons remain readable.
+export function normalizeMode(mode: CardMode, hidden = false): CardMode {
+  if (hidden || mode === "practice") return "practice";
+  if (["peek", "characters", "compact"].includes(mode)) return "peek";
+  return "full";
+}

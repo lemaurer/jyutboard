@@ -1,0 +1,11 @@
+{
+  "framework": "vite",
+  "buildCommand": "npm run build:web",
+  "outputDirectory": "dist",
+  "rewrites": [{"source":"/api/board","destination":"https://jyutdeck-live-jul08f.vercel.app/api/v1/board"}],
+  "headers": [
+    {"source":"/sw.js","headers":[{"key":"Cache-Control","value":"no-cache"}]},
+    {"source":"/index.html","headers":[{"key":"Cache-Control","value":"no-cache"}]},
+    {"source":"/(.*)","headers":[{"key":"Referrer-Policy","value":"no-referrer"},{"key":"X-Content-Type-Options","value":"nosniff"},{"key":"Permissions-Policy","value":"microphone=(self), camera=()"}]}
+  ]
+}

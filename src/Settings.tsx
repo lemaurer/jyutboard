@@ -1,21 +1,16 @@
 import { useEffect, useState } from "react";
-import type { HighlightMode } from "./VocabularyPhrase";
 import { X } from "lucide-react";
 export function Settings({
   close,
   notify,
   online,
   setOnline,
-  highlightMode,
-  setHighlightMode,
   vocabularyMessage,
 }: {
   close: () => void;
   notify: (text: string) => void;
   online: boolean;
   setOnline: (value: boolean) => void;
-  highlightMode: HighlightMode;
-  setHighlightMode: (value: HighlightMode) => void;
   vocabularyMessage: string;
 }) {
   const [url, setUrl] = useState(
@@ -89,78 +84,76 @@ export function Settings({
           is best effort; add a Cloud key for the supported service.
         </small>
         <hr />
-        <label>
-          Vocabulary highlighting
-          <select
-            aria-label="Vocabulary highlighting"
-            value={highlightMode}
-            onChange={(e) => setHighlightMode(e.target.value as HighlightMode)}
-          >
-            <option value="off">Off</option>
-            <option value="always">Always</option>
-            <option value="created">First five seconds</option>
-            <option value="selected">When selected</option>
-          </select>
-        </label>
         <small>
           {vocabularyMessage}. Green: recorded / known in JyutDeck. Amber: in
           queue. Pink: new. Grey: not checked. Status colours use JyutDeck data,
           not local guesses.
         </small>
         <hr />
-        <label>
-          JyutDeck request endpoint
-          <input value={url} onChange={(e) => setUrl(e.target.value)} />
-        </label>
-        <label>
-          JyutDeck request token {hasToken ? "· saved" : ""}
-          <input
-            autoComplete="off"
-            type="password"
-            value={token}
-            onChange={(e) => setToken(e.target.value)}
-            placeholder={
-              hasToken
-                ? "Leave blank to keep saved token"
-                : "NATASHA_REQUEST_API_TOKEN"
-            }
-          />
-        </label>
-        <small>
-          Use the external request token, not the website login code. Phrases
-          enter Natasha’s approval queue. Lesson audio stays here because the
-          API does not accept recordings.
-        </small>
-        <label>
-          Google Cloud Translation key (optional) {hasGoogle ? "· saved" : ""}
-          <input
-            autoComplete="off"
-            type="password"
-            value={google}
-            onChange={(e) => setGoogle(e.target.value)}
-            placeholder="Leave blank to use free translation"
-          />
-        </label>
-        <div className="row spread">
-          <button
-            onClick={() => {
-              void window.desktop?.clearSettings().then(() => {
-                setHasToken(false);
-                setHasGoogle(false);
-                notify("Saved credentials removed.");
-              });
-            }}
-          >
-            Clear saved credentials
-          </button>
-          <button
-            className="primary"
-            disabled={busy || !window.desktop}
-            onClick={() => void save()}
-          >
-            {busy ? "Saving…" : "Save settings"}
-          </button>
-        </div>
+        {!window.desktop?.web && (
+          <>
+            <label>
+              JyutDeck request endpoint
+              <input value={url} onChange={(e) => setUrl(e.target.value)} />
+            </label>
+            <label>
+              JyutDeck request token {hasToken ? "· saved" : ""}
+              <input
+                autoComplete="off"
+                type="password"
+                value={token}
+                onChange={(e) => setToken(e.target.value)}
+                placeholder={
+                  hasToken
+                    ? "Leave blank to keep saved token"
+                    : "NATASHA_REQUEST_API_TOKEN"
+                }
+              />
+            </label>
+            <small>
+              Use the external request token, not the website login code.
+              Phrases enter Natasha’s approval queue. Lesson audio stays here
+              because the API does not accept recordings.
+            </small>
+            <label>
+              Google Cloud Translation key (optional){" "}
+              {hasGoogle ? "· saved" : ""}
+              <input
+                autoComplete="off"
+                type="password"
+                value={google}
+                onChange={(e) => setGoogle(e.target.value)}
+                placeholder="Leave blank to use free translation"
+              />
+            </label>
+            <div className="row spread">
+              <button
+                onClick={() => {
+                  void window.desktop?.clearSettings().then(() => {
+                    setHasToken(false);
+                    setHasGoogle(false);
+                    notify("Saved credentials removed.");
+                  });
+                }}
+              >
+                Clear saved credentials
+              </button>
+              <button
+                className="primary"
+                disabled={busy || !window.desktop}
+                onClick={() => void save()}
+              >
+                {busy ? "Saving…" : "Save settings"}
+              </button>
+            </div>
+          </>
+        )}
+        {window.desktop?.web && (
+          <p>
+            Connect to your partner’s lesson to use vocabulary, push-to-talk and
+            the JyutDeck queue. No API credentials are needed on this device.
+          </p>
+        )}
       </section>
     </div>
   );

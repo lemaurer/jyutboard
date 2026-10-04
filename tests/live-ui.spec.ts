@@ -19,6 +19,28 @@ async function blankPage(browser: Browser) {
     permissions: ["microphone"],
   });
   contexts.push(context);
+  await context.addInitScript(() => {
+    (window as any).desktop = {
+      pair: async () => null,
+      saveBackup: async (text: string) => {
+        const url = URL.createObjectURL(
+          new Blob([text], { type: "application/json" }),
+        );
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = "lesson.json";
+        link.click();
+        setTimeout(() => URL.revokeObjectURL(url), 5000);
+        return true;
+      },
+      vocabulary: async () => {
+        throw Error("No vocabulary in this fixture");
+      },
+      translate: async () => {
+        throw Error("Offline fixture");
+      },
+    };
+  });
   const page = await context.newPage();
   await page.goto("/");
   await expect(
@@ -71,7 +93,7 @@ test("shared lesson keeps separate Chinese/Jyutping views, word edits and practi
   await natasha.getByLabel("Piece 4 Chinese").fill("水");
   await expect(leif.getByLabel("Piece 4 Chinese")).toHaveValue("水");
   await natasha
-    .getByRole("button", { name: "Full Pronunciation + English" })
+    .getByRole("button", { name: "Standard Language + English" })
     .click();
   await expect(lCard.locator(".card-english")).toBeVisible();
   await expect(leif.getByLabel("English meaning")).toBeVisible();
@@ -109,7 +131,7 @@ test("tables translate locally, edit row notes, hide English and delete selected
     "I want water.",
   );
   await page.getByRole("button", { name: "Natasha" }).click();
-  await page.getByLabel("Hide English from Leif").check();
+  await page.getByLabel("Selected card mode").selectOption("practice");
   await page.getByRole("button", { name: "Leif" }).click();
   await expect(table.getByLabel("English translation")).toHaveCount(0);
   await table
@@ -186,7 +208,7 @@ test("temporary inspector, compact hover cards, clean split/merge editor and voc
   await expect(page.locator(".inspector")).toBeVisible();
   await card.click();
   await page
-    .getByRole("button", { name: "Characters Plain text; hover for reading" })
+    .getByRole("button", { name: "Compact Meaning on hover or tap" })
     .click();
   await page.locator(".canvas-viewport").hover({ position: { x: 15, y: 20 } });
   await expect(card.locator(".hover-translation")).not.toBeVisible();
@@ -204,15 +226,12 @@ test("temporary inspector, compact hover cards, clean split/merge editor and voc
   await page.getByLabel("Piece 1 vocabulary").selectOption("known");
   await page.getByLabel("Card note").fill("Ask where it is.");
   await page
-    .getByRole("button", { name: "Vocabulary Words coloured in the phrase" })
+    .getByRole("button", { name: "Standard Language + English" })
     .click();
   await expect(card.locator(".inline-vocabulary .state-known")).toHaveCount(1);
-  await card.getByRole("button", { name: "Expand card" }).click();
+  await page.getByRole("button", { name: "Vocabulary colours" }).click();
   await expect(card.locator(".card-note")).toHaveText("Ask where it is.");
-  await page.getByLabel("Hide English from Leif").check();
-  await page
-    .getByRole("button", { name: "Characters Plain text; hover for reading" })
-    .click();
+  await page.getByLabel("Selected card mode").selectOption("practice");
   await page.getByRole("button", { name: "Leif", exact: true }).click();
   await card.hover();
   await expect(card.locator(".hover-translation")).toHaveCount(0);
@@ -417,7 +436,7 @@ test("attached connectors follow resized cards; marquee selection edits, moves a
   await expect(
     page.getByRole("heading", { name: "2 elements", exact: true }),
   ).toBeVisible();
-  await page.getByLabel("Group card mode").selectOption("characters");
+  await page.getByLabel("Group card mode").selectOption("peek");
   for (const card of await page.getByTestId("phrase-card").all())
     await expect(card).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
   const original = await page.getByTestId("phrase-card").first().boundingBox();
@@ -534,9 +553,10 @@ test("thin drawings and highlights can be selected, recoloured and erased with u
     page.getByRole("heading", { name: "Drawing", exact: true }),
   ).toBeVisible();
   await page.getByRole("button", { name: "Ink #3aa58b", exact: true }).click();
-  await expect(
-    page.getByTestId("drawing").locator("polyline").first(),
-  ).toHaveAttribute("stroke", "#3aa58b");
+  await expect(page.getByTestId("smooth-ink").first()).toHaveAttribute(
+    "fill",
+    "#3aa58b",
+  );
   await page
     .getByRole("button", { name: "Erase drawings", exact: true })
     .click();
@@ -891,4 +911,34 @@ test("notes edit directly and laser draws across cards without focusing or movin
   await expect(page.locator(".laser-layer polyline")).toHaveCount(0, {
     timeout: 4000,
   });
+});
+
+test("the three modes also govern table meanings and individual conversation-bubble details", async ({
+  browser,
+}) => {
+  const page = await blankPage(browser);
+  await page.getByRole("button", { name: "Natasha", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Add phrase table", exact: true })
+    .click();
+  const table = page.getByTestId("table-card");
+  await table.getByLabel("Chinese phrase", { exact: true }).fill("飲水");
+  await page.getByLabel("Selected card mode").selectOption("peek");
+  await expect(table.getByLabel("English translation")).toHaveCount(0);
+  await table.locator("tbody tr").hover();
+  await expect(table.getByRole("tooltip")).toContainText("water");
+  await page.getByLabel("Selected card mode").selectOption("practice");
+  await expect(table.getByRole("tooltip")).toHaveCount(0);
+  await page
+    .getByRole("button", { name: "Add conversation", exact: true })
+    .click();
+  const conversation = page.getByTestId("conversation-card");
+  await conversation.getByLabel("Dialogue Cantonese").first().fill("你好");
+  await conversation.getByLabel("Bubble options").first().click();
+  await conversation.getByLabel("Bubble mode").first().selectOption("practice");
+  await conversation.getByLabel("Bubble options").first().click();
+  await page.getByRole("button", { name: "Leif", exact: true }).click();
+  await conversation.getByLabel("Dialogue Jyutping").first().click();
+  await expect(page.locator(".row-detail")).not.toContainText("English");
+  await expect(page.getByLabel("Piece 1 meaning")).toHaveCount(0);
 });

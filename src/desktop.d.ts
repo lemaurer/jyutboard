@@ -2,6 +2,7 @@ export {};
 declare global {
   interface Window {
     desktop?: {
+      web?: boolean;
       vocabulary: () => Promise<{
         known: string[];
         queued: string[];

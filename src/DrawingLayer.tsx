@@ -1,4 +1,5 @@
-import type { PointerEvent } from "react";
+import { inkOutline } from "./ink";
+import { memo, type PointerEvent } from "react";
 import type { Connector, Stroke } from "./model";
 export function DrawingLayer({
   strokes,
@@ -56,11 +57,14 @@ export function DrawingLayer({
       ))}
       {strokes.map((stroke) => (
         <g key={stroke.id} data-testid="drawing">
+          {!stroke.arrow && (
+            <InkPath stroke={stroke} selected={selected.has(stroke.id)} />
+          )}
           <polyline
             className={selected.has(stroke.id) ? "selected-stroke" : ""}
             points={stroke.points.map((p) => p.join(",")).join(" ")}
             fill="none"
-            stroke={stroke.color}
+            stroke={stroke.arrow ? stroke.color : "transparent"}
             strokeWidth={stroke.width ?? 3}
             opacity={stroke.opacity ?? 1}
             strokeLinecap="round"
@@ -86,3 +90,22 @@ export function DrawingLayer({
     </svg>
   );
 }
+
+const InkPath = memo(function InkPath({
+  stroke,
+  selected,
+}: {
+  stroke: Stroke;
+  selected: boolean;
+}) {
+  return (
+    <path
+      data-testid="smooth-ink"
+      d={inkOutline(stroke)}
+      fill={stroke.color}
+      opacity={stroke.opacity ?? 1}
+      style={{ pointerEvents: "none" }}
+      className={selected ? "selected-stroke" : ""}
+    />
+  );
+});

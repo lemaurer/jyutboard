@@ -1,0 +1,10 @@
+node_modules
+release
+.vendor
+dist-electron
+test-results
+playwright-report
+.vercel
+.env*
+
+dist

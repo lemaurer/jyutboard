@@ -1,3 +1,6 @@
+import { inkOutline } from "./ink";
+import { TabletGestures } from "./TabletGestures";
+import { webInvitation, storedPair } from "./webRuntime";
 import {
   useEffect,
   useLayoutEffect,
@@ -42,7 +45,7 @@ import {
   Upload,
   Users,
   Volume2,
-  Expand,
+  Hand,
   Eye,
   EyeOff,
   X,
@@ -107,6 +110,7 @@ import { WordBreakdown } from "./WordBreakdown";
 type Tool =
   | "laser"
   | "erase"
+  | "pan"
   | "select"
   | "draw"
   | "highlight"
@@ -124,8 +128,43 @@ const clamp = (value: number, low: number, high: number) =>
 const errorText = (error: unknown) =>
   error instanceof Error ? error.message : String(error);
 function initialSession() {
+  if (window.desktop?.web && location.hash.includes("room=")) {
+    try {
+      const parsed = parseInvite(`jyutboard://join${location.hash}`);
+      if (location.protocol === "https:" && parsed.relay.startsWith("ws:"))
+        throw Error("Use an Internet lesson for iPad.");
+      const joined = {
+        id: parsed.room,
+        relay: parsed.relay,
+        title: "Our shared teaching room",
+        created: Date.now(),
+      };
+      remember(joined);
+      void window.desktop.pair({
+        action: "remember",
+        room: parsed.room,
+        relay: parsed.relay,
+        host: false,
+      });
+      window.history.replaceState(null, "", location.pathname);
+      return joined;
+    } catch {
+      /* Show invitation entry below. */
+    }
+  }
   const previous = sessions()[0];
   if (previous) return previous;
+  const installedPair = window.desktop?.web ? storedPair() : null;
+  if (installedPair?.room) {
+    const joined = {
+      id: installedPair.room,
+      relay: installedPair.relay,
+      title: "Our shared teaching room",
+      created: Date.now(),
+    };
+    remember(joined);
+    return joined;
+  }
   const first = {
     id: newRoom(),
     title: "Our first Cantonese lesson",
@@ -135,7 +174,7 @@ function initialSession() {
   return first;
 }
 function englishHidden(card: Card, teacher: boolean) {
-  return !teacher && (card.mode === "practice" || card.hideEnglishForLearner);
+  return card.mode === "practice";
 }
 
 export default function App() {
@@ -148,10 +187,16 @@ export default function App() {
     loadPreference("online", "true") === "true",
   );
   const [leftOpen, setLeftOpen] = useState(
-    loadPreference("leftOpen", "true") === "true",
+    loadPreference(
+      "leftOpen",
+      matchMedia("(pointer: coarse)").matches ? "false" : "true",
+    ) === "true",
   );
   const [rightOpen, setRightOpen] = useState(
-    loadPreference("rightOpen", "true") === "true",
+    loadPreference(
+      "rightOpen",
+      matchMedia("(pointer: coarse)").matches ? "false" : "true",
+    ) === "true",
   );
   const [temporaryRight, setTemporaryRight] = useState(false);
   const lesson = useLesson(session, role);
@@ -179,11 +224,12 @@ export default function App() {
     height: number;
   } | null>(null);
   const erasing = useRef(false);
+  const lastInkPresence = useRef(0);
   const gestureMoved = useRef(false);
   const [highlightMode, setHighlightMode] = useState<HighlightMode>(
-    (loadPreference("vocabularyHighlight", "off") === "hover"
+    ["off", "hover"].includes(loadPreference("vocabularyHighlight", "off"))
       ? "off"
-      : loadPreference("vocabularyHighlight", "off")) as HighlightMode,
+      : "always",
   );
   const [vocabulary, setVocabulary] = useState<VocabularySnapshot>();
   const [vocabularyMessage, setVocabularyMessage] = useState(
@@ -213,7 +259,9 @@ export default function App() {
   const [selectedStroke, setSelectedStroke] = useState<string | null>(null);
   const [input, setInput] = useState("");
   const [settings, setSettings] = useState(false);
-  const [sharing, setSharing] = useState(false);
+  const [sharing, setSharing] = useState(
+    Boolean(window.desktop?.web && !sessions()[0]?.relay),
+  );
   const [invite, setInvite] = useState("");
   const [relay, setRelay] = useState(loadPreference("relay", ""));
   const [join, setJoin] = useState("");
@@ -224,7 +272,6 @@ export default function App() {
   const [sticker, setSticker] = useState("noodles");
   const [sourceLanguage, setSourceLanguage] =
     useState<SourceLanguage>("chinese");
-  const [expandedCards, setExpandedCards] = useState<Set<string>>(new Set());
   const [followPeerId, setFollowPeerId] = useState<string | null>(null);
   const [autoFollowing, setAutoFollowing] = useState(false);
   const [dismissedPresenter, setDismissedPresenter] = useState<string | null>(
@@ -239,6 +286,62 @@ export default function App() {
   const [renaming, setRenaming] = useState(false);
   const board = useRef<HTMLDivElement>(null);
   const viewport = useRef<HTMLDivElement>(null);
+  const tabletGestures = useRef<TabletGestures | null>(null);
+  const toolRef = useRef(tool);
+  toolRef.current = tool;
+  const navigationRef = useRef({ stopFollowing, publishView });
+  navigationRef.current = { stopFollowing, publishView };
+  useEffect(() => {
+    const node = viewport.current;
+    if (!node) return;
+    tabletGestures.current = new TabletGestures(
+      node,
+      () => ({ x: node.scrollLeft, y: node.scrollTop, zoom: zoomRef.current }),
+      (view) => {
+        navigationRef.current.stopFollowing();
+        zoomRef.current = view.zoom;
+        setZoom(view.zoom);
+        requestAnimationFrame(() => {
+          node.scrollLeft = view.x;
+          node.scrollTop = view.y;
+          navigationRef.current.publishView();
+        });
+      },
+      () => toolRef.current,
+    );
+    const releasePen = (event: globalThis.PointerEvent) =>
+      tabletGestures.current?.releasePen(event);
+    window.addEventListener("pointerup", releasePen);
+    window.addEventListener("pointercancel", releasePen);
+    return () => {
+      window.removeEventListener("pointerup", releasePen);
+      window.removeEventListener("pointercancel", releasePen);
+      tabletGestures.current = null;
+    };
+  }, []);
+  useEffect(() => {
+    const node = viewport.current;
+    if (!node) return;
+    const layout = () => {
+      const bounds = node.getBoundingClientRect();
+      document.documentElement.style.setProperty(
+        "--details-top",
+        `${bounds.top}px`,
+      );
+      document.documentElement.style.setProperty(
+        "--details-bottom",
+        `${Math.max(0, innerHeight - bounds.bottom)}px`,
+      );
+    };
+    const observer = new ResizeObserver(layout);
+    observer.observe(node);
+    layout();
+    window.addEventListener("resize", layout);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", layout);
+    };
+  }, []);
   const importInput = useRef<HTMLInputElement>(null);
   const drag = useRef<{
     start: [number, number];
@@ -270,7 +373,7 @@ export default function App() {
         ? [card]
         : [],
   );
-  const hidden = active ? englishHidden(active, teacher) : false;
+  const hidden = !teacher && (activeRow?.mode ?? active?.mode) === "practice";
   const effectiveRightOpen = rightOpen || temporaryRight;
 
   useLayoutEffect(() => {
@@ -287,7 +390,7 @@ export default function App() {
         ? next
         : previous,
     );
-  }, [cards, role, expandedCards, selectedItems]);
+  }, [cards, role, selectedItems]);
   useEffect(() => {
     const valid = new Set(
       [...cards, ...strokes, ...connectors].map((item) => item.id),
@@ -998,8 +1101,37 @@ export default function App() {
     } else if (path.current) {
       const stroke = path.current;
       if (stroke.arrow) stroke.points = [stroke.points[0], [x, y]];
-      else if (stroke.points.length < 5000) stroke.points.push([x, y]);
+      else {
+        const samples = event.nativeEvent.getCoalescedEvents?.() || [];
+        for (const sample of samples.length ? samples : [event.nativeEvent]) {
+          if (stroke.points.length >= 5000) break;
+          stroke.points.push(point(sample));
+          if (stroke.pressures) stroke.pressures.push(sample.pressure || 0.5);
+        }
+      }
       setPending({ ...stroke, points: [...stroke.points] });
+      if (Date.now() - lastInkPresence.current > 32) {
+        const indices = stroke.points
+          .map((_, i) => i)
+          .filter(
+            (i) =>
+              i % Math.ceil(stroke.points.length / 96) === 0 ||
+              i === stroke.points.length - 1,
+          );
+        lesson.presence({
+          ink: {
+            stroke: {
+              ...stroke,
+              points: indices.map((i) => stroke.points[i]),
+              pressures: stroke.pressures
+                ? indices.map((i) => stroke.pressures![i])
+                : undefined,
+            },
+            at: Date.now(),
+          },
+        });
+        lastInkPresence.current = Date.now();
+      }
     }
   }
   function endPointer(event?: { clientX: number; clientY: number }) {
@@ -1040,9 +1172,15 @@ export default function App() {
     resizing.current = null;
     erasing.current = false;
     if (path.current && doc) {
+      if (path.current.points.length === 1 && !path.current.arrow) {
+        path.current.points.push(path.current.points[0]);
+        if (path.current.pressures)
+          path.current.pressures.push(path.current.pressures[0]);
+      }
       if (path.current.points.length > 1)
         doc.getMap<Stroke>("strokes").set(path.current.id, path.current);
       path.current = null;
+      lesson.presence({ ink: null });
       setPending(null);
       lesson.stopCapturing();
     }
@@ -1233,6 +1371,33 @@ export default function App() {
       setSharingBusy(false);
     }
   }
+  useEffect(() => {
+    if (!window.desktop?.web || !paired?.room || paired.room !== session.id)
+      return;
+    let active = true;
+    const refresh = () => {
+      if (document.visibilityState !== "visible" || !navigator.onLine) return;
+      void window
+        .desktop!.pair({ action: "resolve", room: session.id })
+        .then((result) => {
+          if (active && result?.relay && result.relay !== session.relay) {
+            updateSession({ ...session, relay: result.relay });
+            if (!session.relay) setSharing(false);
+          }
+        })
+        .catch(() => {});
+    };
+    refresh();
+    document.addEventListener("visibilitychange", refresh);
+    window.addEventListener("online", refresh);
+    const timer = setInterval(refresh, 30000);
+    return () => {
+      active = false;
+      clearInterval(timer);
+      document.removeEventListener("visibilitychange", refresh);
+      window.removeEventListener("online", refresh);
+    };
+  }, [session.id, session.relay, paired?.room]);
   function resizeHandle(card: Card) {
     if (!selectedItems.has(card.id) || selectedItems.size !== 1) return null;
     return (
@@ -1293,10 +1458,11 @@ export default function App() {
       height:
         card.kind === "sticker" ? card.height || card.width || 118 : undefined,
       backgroundColor:
-        card.kind === "sticker" || card.mode === "characters"
-          ? undefined
-          : card.tint || undefined,
+        card.kind === "sticker" || card.kind === "note"
+          ? card.tint || undefined
+          : card.tint || "transparent",
       "--text-scale": card.textScale,
+      "--card-fill": card.tint || "transparent",
     } as CSSProperties;
   }
   function addConnector(from: string, to: string) {
@@ -1532,6 +1698,14 @@ export default function App() {
   function joinRoom() {
     try {
       const parsed = parseInvite(join);
+      if (
+        window.desktop?.web &&
+        location.protocol === "https:" &&
+        parsed.relay.startsWith("ws:")
+      )
+        throw Error(
+          "Choose Start internet lesson on your partner’s desktop, then use Copy iPad link.",
+        );
       const existing = history.find((item) => item.id === parsed.room);
       switchSession(
         existing
@@ -1544,7 +1718,12 @@ export default function App() {
             },
       );
       void window.desktop
-        ?.pair({ action: "remember", room: parsed.room, host: false })
+        ?.pair({
+          action: "remember",
+          room: parsed.room,
+          relay: parsed.relay,
+          host: false,
+        })
         .then(() => setPaired({ room: parsed.room, host: false }));
       setSharing(false);
       notify("Joining the shared lesson…");
@@ -1726,6 +1905,13 @@ export default function App() {
           <div className="brand">
             <img className="brand-icon" src="./app-icon.png" alt="" />
             <strong>JyutBoard</strong>
+            <button
+              className="tablet-panel-close"
+              aria-label="Close pages"
+              onClick={() => setLeftOpen(false)}
+            >
+              <X size={18} />
+            </button>
           </div>
           {paired && (
             <button
@@ -1796,6 +1982,17 @@ export default function App() {
       <main>
         <div className="topbar">
           <div className="topbar-left">
+            {window.desktop?.web && (
+              <select
+                className="tablet-role"
+                aria-label="Your lesson view"
+                value={role}
+                onChange={(e) => setRole(e.target.value as Role)}
+              >
+                <option value="learner">Leif · Jyutping</option>
+                <option value="teacher">Natasha · 中文</option>
+              </select>
+            )}
             <button
               className={leftOpen ? "icon-button active" : "icon-button"}
               aria-label={leftOpen ? "Hide pages" : "Show pages"}
@@ -1933,7 +2130,28 @@ export default function App() {
         <div className="workspace">
           <section className="canvas-column">
             <div className="canvas-actions">
+              {window.desktop?.web && paired && (
+                <button
+                  className="tablet-join"
+                  disabled={sharingBusy}
+                  onClick={() => void joinPartner()}
+                >
+                  {sharingBusy
+                    ? "Joining…"
+                    : teacher
+                      ? "Join Leif"
+                      : "Join Natasha"}
+                </button>
+              )}
               <div className="tool-group">
+                <button
+                  className={`touch-pan ${tool === "pan" ? "active" : ""}`}
+                  title="Pan canvas"
+                  aria-label="Pan canvas"
+                  onClick={() => setTool("pan")}
+                >
+                  <Hand size={18} />
+                </button>
                 <button
                   title="Select and move"
                   aria-label="Select and move"
@@ -2039,7 +2257,77 @@ export default function App() {
                   <Zap size={18} />
                 </button>
               </div>
+              {active && (
+                <div
+                  className="tool-group selection-tools"
+                  aria-label="Selected element controls"
+                >
+                  {teacher &&
+                    ["phrase", "conversation", "table"].includes(
+                      active.kind,
+                    ) && (
+                      <select
+                        aria-label="Selected card mode"
+                        value={active.mode}
+                        onChange={(e) => {
+                          if (!doc) return;
+                          const mode = e.target.value as CardMode;
+                          doc.transact(() => {
+                            patchCard(doc, active.id, {
+                              mode,
+                              hideEnglishForLearner: false,
+                            });
+                            if (active.kind === "conversation")
+                              active.rows.forEach((row) =>
+                                patchTableRow(doc, active.id, row.id, { mode }),
+                              );
+                          });
+                        }}
+                      >
+                        <option value="full">Standard</option>
+                        <option value="peek">Compact</option>
+                        <option value="practice">Practice</option>
+                      </select>
+                    )}
+                  {["phrase", "note"].includes(active.kind) && (
+                    <button
+                      title="Edit text in place"
+                      aria-label="Edit text in place"
+                      onClick={() => setEditingCard(active.id)}
+                    >
+                      <Pencil size={16} />
+                    </button>
+                  )}
+                  <button
+                    title="Duplicate selected"
+                    aria-label="Duplicate selected"
+                    onClick={duplicateSelection}
+                  >
+                    <CopyPlus size={16} />
+                  </button>
+                  <button
+                    title="Delete selected"
+                    aria-label="Delete selected"
+                    onClick={removeSelected}
+                  >
+                    <Trash2 size={16} />
+                  </button>
+                </div>
+              )}
               <div className="tool-group">
+                <button
+                  title="Vocabulary colours · known, queued, new"
+                  aria-label="Vocabulary colours"
+                  aria-pressed={highlightMode !== "off"}
+                  className={highlightMode !== "off" ? "active" : ""}
+                  onClick={() => {
+                    const next = highlightMode === "off" ? "always" : "off";
+                    setHighlightMode(next);
+                    preference("vocabularyHighlight", next);
+                  }}
+                >
+                  <span className="vocabulary-toggle">粵</span>
+                </button>
                 <span className="view-badge">
                   {teacher ? "Natasha · 中文" : "Leif · Jyutping"}
                 </span>
@@ -2140,7 +2428,36 @@ export default function App() {
                 ’s view <button onClick={stopFollowing}>Stop following</button>
               </div>
             )}
-            <div className="canvas-viewport" ref={viewport}>
+            <div
+              className="canvas-viewport"
+              ref={viewport}
+              onPointerDownCapture={(e) => {
+                if (tabletGestures.current?.down(e.nativeEvent)) {
+                  drag.current = null;
+                  marquee.current = null;
+                  resizing.current = null;
+                  setSelectionRect(null);
+                  e.preventDefault();
+                  e.stopPropagation();
+                }
+              }}
+              onPointerMoveCapture={(e) => {
+                if (tabletGestures.current?.move(e.nativeEvent)) {
+                  e.preventDefault();
+                  e.stopPropagation();
+                }
+              }}
+              onPointerUpCapture={(e) => {
+                if (tabletGestures.current?.up(e.nativeEvent)) {
+                  e.stopPropagation();
+                }
+              }}
+              onPointerCancelCapture={(e) => {
+                if (tabletGestures.current?.up(e.nativeEvent)) {
+                  e.stopPropagation();
+                }
+              }}
+            >
               <div
                 style={{
                   width: BOARD_WIDTH * zoom,
@@ -2213,6 +2530,10 @@ export default function App() {
                       path.current = {
                         id: crypto.randomUUID(),
                         points: [location],
+                        pressures:
+                          event.pointerType === "pen"
+                            ? [event.pressure || 0.5]
+                            : undefined,
                         color: tool === "highlight" ? highlightColor : inkColor,
                         arrow: tool === "arrow",
                         width: tool === "highlight" ? highlightWidth : inkWidth,
@@ -2263,6 +2584,30 @@ export default function App() {
                       if (!rightOpen) setTemporaryRight(true);
                     }}
                   />
+                  <svg
+                    className="remote-ink-layer"
+                    width={BOARD_WIDTH}
+                    height={BOARD_HEIGHT}
+                  >
+                    {peers
+                      .filter(
+                        (peer) =>
+                          peer.ink &&
+                          now - peer.ink.at < 6000 &&
+                          !strokes.some(
+                            (stroke) => stroke.id === peer.ink!.stroke.id,
+                          ),
+                      )
+                      .map((peer) => (
+                        <path
+                          key={peer.id}
+                          data-testid="live-ink"
+                          d={inkOutline(peer.ink!.stroke)}
+                          fill={peer.ink!.stroke.color}
+                          opacity={peer.ink!.stroke.opacity ?? 1}
+                        />
+                      ))}
+                  </svg>
                   <svg
                     className="laser-layer"
                     width={BOARD_WIDTH}
@@ -2420,7 +2765,7 @@ export default function App() {
                       <article
                         key={card.id}
                         data-testid="table-card"
-                        className={`board-card table-card table-style-${card.tableStyle} table-variant-${card.tableVariant} ${selectedItems.has(card.id) ? "selected" : ""}`}
+                        className={`board-card table-card table-mode-${card.mode} table-style-${card.tableStyle} table-variant-${card.tableVariant} ${selectedItems.has(card.id) ? "selected" : ""}`}
                         data-card-id={card.id}
                         ref={(node) => {
                           if (node) cardElements.current.set(card.id, node);
@@ -2705,28 +3050,10 @@ export default function App() {
                                 <EyeOff size={13} /> Meaning hidden by Natasha
                               </div>
                             )}
-                            {expandedCards.has(card.id) &&
-                              card.words.length > 0 && (
-                                <div className="card-word-chips">
-                                  {card.words.map((word, wordIndex) => (
-                                    <span
-                                      key={`${word.chinese}-${wordIndex}`}
-                                      className={`state-${vocabularyState(word, vocabulary)}`}
-                                      title={`${vocabularyState(word, vocabulary)} vocabulary`}
-                                    >
-                                      {teacher
-                                        ? word.chinese
-                                        : word.jyutping || word.chinese}
-                                    </span>
-                                  ))}
-                                </div>
-                              )}
-                            {(card.mode === "full" ||
-                              expandedCards.has(card.id)) &&
-                              Boolean(card.note) && (
-                                <p className="card-note">{card.note}</p>
-                              )}
-                            {expandedCards.has(card.id) &&
+                            {card.mode === "full" && card.note && (
+                              <p className="card-note">{card.note}</p>
+                            )}
+                            {card.mode === "full" &&
                               !teacher &&
                               card.chinese && (
                                 <p className="card-secondary">{card.chinese}</p>
@@ -2748,29 +3075,6 @@ export default function App() {
                                   <Volume2 size={16} />
                                 </button>
                               )}
-                              <button
-                                aria-label={
-                                  expandedCards.has(card.id)
-                                    ? "Collapse card"
-                                    : "Expand card"
-                                }
-                                title={
-                                  expandedCards.has(card.id)
-                                    ? "Collapse card"
-                                    : "Show more"
-                                }
-                                onClick={(event) => {
-                                  event.stopPropagation();
-                                  setExpandedCards((current) => {
-                                    const next = new Set(current);
-                                    if (next.has(card.id)) next.delete(card.id);
-                                    else next.add(card.id);
-                                    return next;
-                                  });
-                                }}
-                              >
-                                <Expand size={14} />
-                              </button>
                             </div>
                           </>
                         )}
@@ -2989,19 +3293,15 @@ export default function App() {
                                 onChange={(event) =>
                                   patchSelection({
                                     mode: event.target.value as CardMode,
+                                    hideEnglishForLearner: false,
                                   })
                                 }
                               >
                                 <option value="" disabled>
                                   Choose mode…
                                 </option>
-                                <option value="full">Full</option>
-                                <option value="compact">Compact</option>
-                                <option value="peek">Hover</option>
-                                <option value="characters">
-                                  Plain characters
-                                </option>
-                                <option value="breakdown">Vocabulary</option>
+                                <option value="full">Standard</option>
+                                <option value="peek">Compact</option>
                                 <option value="practice">Practice</option>
                               </select>
                             </label>
@@ -3022,27 +3322,6 @@ export default function App() {
                               />
                             </label>
                           </>
-                        )}
-                      {teacher &&
-                        selectedCards.every((card) =>
-                          ["phrase", "table"].includes(card.kind),
-                        ) && (
-                          <div className="element-actions">
-                            <button
-                              onClick={() =>
-                                patchSelection({ hideEnglishForLearner: true })
-                              }
-                            >
-                              Hide English for all
-                            </button>
-                            <button
-                              onClick={() =>
-                                patchSelection({ hideEnglishForLearner: false })
-                              }
-                            >
-                              Show English for all
-                            </button>
-                          </div>
                         )}
                       {selectedCards.length === 2 && (
                         <button
@@ -3133,6 +3412,7 @@ export default function App() {
                             doc.transact(() => {
                               patchCard(doc, active.id, {
                                 mode: e.target.value as Card["mode"],
+                                hideEnglishForLearner: false,
                               });
                               active.rows.forEach((row) =>
                                 patchTableRow(doc, active.id, row.id, {
@@ -3142,12 +3422,9 @@ export default function App() {
                             });
                         }}
                       >
-                        <option value="full">Language + English</option>
-                        <option value="practice">
-                          Practice · hide English
-                        </option>
-                        <option value="peek">English on hover</option>
-                        <option value="characters">Characters only</option>
+                        <option value="full">Standard</option>
+                        <option value="peek">Compact</option>
+                        <option value="practice">Practice</option>
                       </select>
                     </label>
                   )}
@@ -3300,21 +3577,7 @@ export default function App() {
                           }
                         />
                       </label>
-                      {teacher && (
-                        <label className="check">
-                          <input
-                            type="checkbox"
-                            checked={active.hideEnglishForLearner}
-                            onChange={(event) =>
-                              doc &&
-                              patchCard(doc, active.id, {
-                                hideEnglishForLearner: event.target.checked,
-                              })
-                            }
-                          />{" "}
-                          Hide English from Leif
-                        </label>
-                      )}
+
                       <button
                         className="soft wide"
                         onClick={() =>
@@ -3514,6 +3777,29 @@ export default function App() {
                   {active.kind === "phrase" && teacher && (
                     <div className="appearance">
                       <h3>Card appearance</h3>
+                      <div className="fill-presets" aria-label="Card fill">
+                        {[
+                          ["", "Transparent"],
+                          ["#ffffff", "White"],
+                          ["#eef3fa", "Mist"],
+                          ["#f1eef8", "Lavender"],
+                          ["#eef5f0", "Sage"],
+                          ["#fbf3e7", "Sand"],
+                        ].map(([tint, label]) => (
+                          <button
+                            key={label}
+                            title={label}
+                            aria-label={`${label} fill`}
+                            aria-pressed={active.tint === tint}
+                            style={{ backgroundColor: tint || "transparent" }}
+                            onClick={() =>
+                              doc && patchCard(doc, active.id, { tint })
+                            }
+                          >
+                            {label}
+                          </button>
+                        ))}
+                      </div>
                       <p className="small-copy">
                         Natasha can choose what Leif sees.
                       </p>
@@ -3521,29 +3807,9 @@ export default function App() {
                       <div className="choice-grid">
                         {(
                           [
-                            ["full", "Full", "Pronunciation + English"],
-                            [
-                              "compact",
-                              "Compact",
-                              "Small pronunciation + meaning",
-                            ],
-                            ["peek", "Hover", "Only text; hover for meaning"],
-                            [
-                              "characters",
-                              "Characters",
-                              "Plain text; hover for reading",
-                            ],
-                            [
-                              "breakdown",
-                              "Vocabulary",
-                              "Words coloured in the phrase",
-                            ],
-                            [
-                              "inline",
-                              "Inline vocabulary",
-                              "Highlight words inside the phrase",
-                            ],
-                            ["practice", "Practice", "Hide English from Leif"],
+                            ["full", "Standard", "Language + English"],
+                            ["peek", "Compact", "Meaning on hover or tap"],
+                            ["practice", "Practice", "Language only"],
                           ] as [CardMode, string, string][]
                         ).map(([mode, label, hint]) => (
                           <button
@@ -3551,7 +3817,11 @@ export default function App() {
                             className={active.mode === mode ? "chosen" : ""}
                             title={hint}
                             onClick={() =>
-                              doc && patchCard(doc, active.id, { mode })
+                              doc &&
+                              patchCard(doc, active.id, {
+                                mode,
+                                hideEnglishForLearner: false,
+                              })
                             }
                           >
                             <strong>{label}</strong>
@@ -3559,19 +3829,6 @@ export default function App() {
                           </button>
                         ))}
                       </div>
-                      <label className="check">
-                        <input
-                          type="checkbox"
-                          checked={active.hideEnglishForLearner}
-                          onChange={(event) =>
-                            doc &&
-                            patchCard(doc, active.id, {
-                              hideEnglishForLearner: event.target.checked,
-                            })
-                          }
-                        />{" "}
-                        Hide English from Leif
-                      </label>
                       <div className="option-label">Shape</div>
                       <div className="shape-choices">
                         {(
@@ -3744,11 +4001,6 @@ export default function App() {
       )}
       {settings && (
         <Settings
-          highlightMode={highlightMode}
-          setHighlightMode={(value) => {
-            setHighlightMode(value);
-            preference("vocabularyHighlight", value);
-          }}
           vocabularyMessage={vocabularyMessage}
           close={() => setSettings(false)}
           notify={notify}
@@ -3769,7 +4021,11 @@ export default function App() {
             onClick={(event) => event.stopPropagation()}
           >
             <div className="section-head">
-              <h2>A desk for two</h2>
+              <h2>
+                {window.desktop?.web
+                  ? "Join your teaching desk"
+                  : "A desk for two"}
+              </h2>
               <button
                 aria-label="Close sharing"
                 onClick={() => setSharing(false)}
@@ -3777,84 +4033,137 @@ export default function App() {
                 <X size={18} />
               </button>
             </div>
+            {window.desktop?.web && (
+              <div className="segmented join-roles">
+                <button
+                  className={!teacher ? "active" : ""}
+                  onClick={() => setRole("learner")}
+                >
+                  Leif · Jyutping
+                </button>
+                <button
+                  className={teacher ? "active" : ""}
+                  onClick={() => setRole("teacher")}
+                >
+                  Natasha · 中文
+                </button>
+              </div>
+            )}
             <p>
               Each person chooses their own view. Cards, tables, drawings, saved
               phrases, and recordings stay together.
             </p>
-            <div className="share-step">
-              <span>01</span>
-              <div>
-                <h3>Invite Natasha or Leif</h3>
-                <p>
-                  Choose Internet lesson for different Wi-Fi networks. Send the
-                  private invitation and keep the host app open. Your partner
-                  pastes it below and joins.
+            {!window.desktop?.web && (
+              <>
+                <div className="share-step">
+                  <span>01</span>
+                  <div>
+                    <h3>Invite Natasha or Leif</h3>
+                    <p>
+                      Choose Internet lesson for different Wi-Fi networks. Send
+                      the private invitation and keep the host app open. Your
+                      partner pastes it below and joins.
+                    </p>
+                  </div>
+                </div>
+                <button
+                  className="primary internet-share"
+                  disabled={sharingBusy || !window.desktop}
+                  onClick={() => void hostRemote()}
+                >
+                  <Globe size={16} />
+                  {sharingBusy ? "Connecting…" : "Start internet lesson"}
+                </button>
+                <p className="small-copy">
+                  No account or network setup. This beta uses a temporary
+                  Cloudflare connection; start a new invitation if the host app
+                  restarts.
                 </p>
-              </div>
-            </div>
-            <button
-              className="primary internet-share"
-              disabled={sharingBusy || !window.desktop}
-              onClick={() => void hostRemote()}
-            >
-              <Globe size={16} />
-              {sharingBusy ? "Connecting…" : "Start internet lesson"}
-            </button>
-            <p className="small-copy">
-              No account or network setup. This beta uses a temporary Cloudflare
-              connection; start a new invitation if the host app restarts.
-            </p>
-            <label>
-              Relay address (optional)
-              <input
-                value={relay}
-                onChange={(event) => setRelay(event.target.value)}
-                placeholder="wss://your-relay.example.com"
-              />
-            </label>
-            <button
-              className="primary"
-              disabled={sharingBusy}
-              onClick={() => void host()}
-            >
-              <Radio size={16} />
-              {sharingBusy ? "Starting…" : "Create invitation"}
-            </button>
-            {invite && (
-              <div className="invite-box">
                 <label>
-                  Private invitation
-                  <input readOnly value={invite} />
+                  Relay address (optional)
+                  <input
+                    value={relay}
+                    onChange={(event) => setRelay(event.target.value)}
+                    placeholder="wss://your-relay.example.com"
+                  />
                 </label>
                 <button
-                  onClick={() =>
-                    void navigator.clipboard
-                      .writeText(invite)
-                      .then(() =>
-                        notify(
-                          "Invitation copied. Send it to your lesson partner.",
-                        ),
-                      )
-                      .catch(() =>
-                        notify("Select and copy the invitation above."),
-                      )
-                  }
+                  className="primary"
+                  disabled={sharingBusy}
+                  onClick={() => void host()}
                 >
-                  <Copy size={15} /> Copy invitation
+                  <Radio size={16} />
+                  {sharingBusy ? "Starting…" : "Create invitation"}
                 </button>
-              </div>
+                {invite && (
+                  <div className="invite-box">
+                    {session.relay?.startsWith("wss://") && (
+                      <label>
+                        iPad / browser invitation
+                        <input
+                          aria-label="iPad invitation"
+                          readOnly
+                          value={webInvitation(session.id, session.relay)}
+                          onFocus={(e) => e.target.select()}
+                        />
+                        <button
+                          onClick={() =>
+                            void navigator.clipboard
+                              .writeText(
+                                webInvitation(session.id, session.relay!),
+                              )
+                              .then(() => notify("iPad link copied."))
+                          }
+                        >
+                          <Copy size={15} /> Copy iPad link
+                        </button>
+                      </label>
+                    )}
+                    <label>
+                      Private invitation
+                      <input readOnly value={invite} />
+                    </label>
+                    <button
+                      onClick={() =>
+                        void navigator.clipboard
+                          .writeText(invite)
+                          .then(() =>
+                            notify(
+                              "Invitation copied. Send it to your lesson partner.",
+                            ),
+                          )
+                          .catch(() =>
+                            notify("Select and copy the invitation above."),
+                          )
+                      }
+                    >
+                      <Copy size={15} /> Copy invitation
+                    </button>
+                  </div>
+                )}
+                <small>
+                  Anyone with the invitation can edit the room. Local ws://
+                  traffic is unencrypted; use a trusted network or WSS/VPN. The
+                  relay operator can read room contents.
+                </small>
+              </>
             )}
-            <small>
-              Anyone with the invitation can edit the room. Local ws:// traffic
-              is unencrypted; use a trusted network or WSS/VPN. The relay
-              operator can read room contents.
-            </small>
             <hr />
             <div className="share-step">
               <span>02</span>
               <div>
                 <h3>Join an existing lesson</h3>
-                <p>Paste the invitation from your partner.</p>
+                <p>
+                  Open your partner’s iPad link or paste their invitation. Next
+                  time, just tap Join {teacher ? "Leif" : "Natasha"}.
+                </p>
+                {window.desktop?.web && (
+                  <p className="install-tip">
+                    In Safari, tap Share → Add to Home Screen to install
+                    JyutBoard. Pencil draws; fingers pan in drawing tools. Use
+                    Select to move cards or select a group.
+                  </p>
+                )}
               </div>
             </div>
             {paired && (

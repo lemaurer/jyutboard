@@ -34,6 +34,7 @@ export function CanvasTable({
   vocabulary?: VocabularySnapshot;
   highlightMode: HighlightMode;
 }) {
+  const compact = card.mode === "peek";
   const paired = ["qa", "comparison"].includes(card.tableVariant),
     pattern = card.tableVariant === "pattern";
   const headings =
@@ -52,7 +53,7 @@ export function CanvasTable({
         <thead>
           <tr>
             <th>{headings[0]}</th>
-            {(paired || !hidden) && <th>{headings[1]}</th>}
+            {(paired || (!hidden && !compact)) && <th>{headings[1]}</th>}
             <th>{headings[2]}</th>
             <th className="row-controls" />
           </tr>
@@ -67,7 +68,12 @@ export function CanvasTable({
                 onSelect(row);
               }}
             >
-              <td>
+              <td className="table-primary-cell">
+                {compact && !hidden && row.definition && (
+                  <div className="table-hover-translation" role="tooltip">
+                    {row.definition}
+                  </div>
+                )}
                 {teacher ? (
                   <input
                     aria-label="Chinese phrase"
@@ -89,7 +95,7 @@ export function CanvasTable({
                     />
                   </span>
                 )}
-                {paired && !hidden && (
+                {paired && !hidden && !compact && (
                   <input
                     className="cell-translation"
                     aria-label="English translation"
@@ -105,7 +111,12 @@ export function CanvasTable({
                 )}
               </td>
               {paired ? (
-                <td>
+                <td className="table-primary-cell">
+                  {compact && !hidden && row.answerDefinition && (
+                    <div className="table-hover-translation" role="tooltip">
+                      {row.answerDefinition}
+                    </div>
+                  )}
                   {teacher ? (
                     <input
                       aria-label="Paired Chinese phrase"
@@ -120,7 +131,7 @@ export function CanvasTable({
                       {row.answerJyutping || "—"}
                     </span>
                   )}
-                  {!hidden && (
+                  {!hidden && !compact && (
                     <input
                       className="cell-translation"
                       aria-label="Paired English translation"
@@ -133,7 +144,8 @@ export function CanvasTable({
                   )}
                 </td>
               ) : (
-                !hidden && (
+                !hidden &&
+                !compact && (
                   <td>
                     <input
                       aria-label="English translation"

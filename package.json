@@ -1,6 +1,6 @@
 {
   "name": "jyutboard",
-  "version": "0.5.2",
+  "version": "0.6.0",
   "description": "A shared Cantonese teaching desk for Natasha and Leif",
   "author": "Leif Maurer",
   "license": "MIT",
@@ -9,7 +9,7 @@
   "scripts": {
     "dev": "node scripts/dev.mjs",
     "dev:web": "vite --host 127.0.0.1",
-    "build": "tsc --noEmit && vite build && node scripts/build-electron.mjs",
+    "build": "npm run build:web && node scripts/build-electron.mjs",
     "start": "electron .",
     "test": "tsx --test tests/*.test.ts",
     "test:e2e": "playwright test",
@@ -19,32 +19,34 @@
     "dist:win": "npm run build && node scripts/fetch-cloudflared.mjs && electron-builder --win --publish never",
     "relay": "node dist-electron/relay.cjs",
     "prepare:remote": "node scripts/fetch-cloudflared.mjs",
-    "test:remote": "npm run prepare:remote && tsx scripts/test-remote.ts"
+    "test:remote": "npm run prepare:remote && tsx scripts/test-remote.ts",
+    "build:web": "tsc --noEmit && vite build && node scripts/build-pwa.mjs"
   },
   "dependencies": {
+    "lucide-react": "^0.468.0",
+    "perfect-freehand": "^1.2.3",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
     "to-jyutping": "3.1.1",
-    "yjs": "^13.6.27",
-    "y-indexeddb": "^9.0.12",
     "ws": "^8.18.3",
-    "lucide-react": "^0.468.0",
+    "y-indexeddb": "^9.0.12",
+    "yjs": "^13.6.27",
     "zod": "^3.25.76"
   },
   "devDependencies": {
-    "electron": "44.5.1",
-    "electron-builder": "26.15.3",
-    "vite": "^6.4.1",
-    "@vitejs/plugin-react": "^4.7.0",
-    "typescript": "^5.9.3",
+    "@playwright/test": "^1.56.0",
+    "@types/node": "^22.19.0",
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
-    "@types/node": "^22.19.0",
     "@types/ws": "^8.18.1",
-    "tsx": "^4.23.0",
+    "@vitejs/plugin-react": "^4.7.0",
+    "agent-browser": "^0.21.0",
+    "electron": "44.5.1",
+    "electron-builder": "26.15.3",
     "esbuild": "^0.25.12",
-    "@playwright/test": "^1.56.0",
-    "agent-browser": "^0.21.0"
+    "tsx": "^4.23.0",
+    "typescript": "^5.9.3",
+    "vite": "^6.4.1"
   },
   "build": {
     "appId": "app.jyutdeck.jyutboard",
