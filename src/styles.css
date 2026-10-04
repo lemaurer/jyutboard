@@ -2643,3 +2643,20 @@ summary > svg,
 .bubble-star:hover {
   opacity: 1;
 }
+
+.composer-entry textarea {
+  flex: 1;
+  min-width: 0;
+  width: auto;
+}
+.composer-entry .push-to-talk {
+  flex: none;
+  padding: 0;
+  margin: 0;
+  gap: 5px;
+}
+.composer-entry .push-to-talk > button:first-child {
+  height: 40px;
+  min-width: 80px;
+  padding: 8px 10px;
+}

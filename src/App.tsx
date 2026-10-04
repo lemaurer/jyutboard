@@ -2873,6 +2873,9 @@ export default function App() {
                     }
                   }}
                 />
+                {teacher && (
+                  <PushToTalk onPhrase={speechPhrase} notify={notify} />
+                )}
                 <button
                   className="primary"
                   type="submit"
@@ -2896,9 +2899,6 @@ export default function App() {
                     <option value="english">English</option>
                   </select>
                 </label>
-                {teacher && (
-                  <PushToTalk onPhrase={speechPhrase} notify={notify} />
-                )}
               </div>
             </form>
           </section>

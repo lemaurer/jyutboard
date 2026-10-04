@@ -99,7 +99,7 @@ npm run check
 npm run dist:win
 ```
 
-The Windows installer and portable build appear in `release/` as `JyutBoard-Setup.exe` and `JyutBoard-Portable.exe`. GitHub Actions builds Mac and Windows packages separately. Create a version tag such as `v0.5.1` to publish them on the GitHub Releases page; the README's Windows button then always points directly to the latest installer. CI builds are not code signed. Windows SmartScreen may require **More info → Run anyway**.
+The Windows installer and portable build appear in `release/` as `JyutBoard-Setup.exe` and `JyutBoard-Portable.exe`. GitHub Actions builds Mac and Windows packages separately. Create a version tag such as `v0.5.2` to publish them on the GitHub Releases page; the README's Windows button then always points directly to the latest installer. CI builds are not code signed. Windows SmartScreen may require **More info → Run anyway**.
 
 ## Relay on a small Linux host
 
@@ -144,4 +144,4 @@ Issues and small focused pull requests are welcome. Please do not attach private
 ### Cleaner conversations and speech capture
 Double-click a sticky note to edit it directly. Conversation bubbles can each be starred into the session tray, sent to JyutDeck, recorded, and given their own display mode from the small options menu. Pick from twelve illustrated avatars by clicking the person's portrait. English can be hidden for the whole conversation or an individual bubble. Notes stay in the details panel.
 
-The microphone supports holding to speak or clicking once to start and again to stop. A release during the permission prompt keeps recording until you stop it; failed transcription keeps the clip available for retry or manual text. The laser draws over every canvas element without selecting or editing it. Vocabulary colours are off by default and do not change on hover.
+The microphone sits beside the text field on the same row. Language selection stays below. The microphone supports holding to speak or clicking once to start and again to stop. A release during the permission prompt keeps recording until you stop it; failed transcription keeps the clip available for retry or manual text. The laser draws over every canvas element without selecting or editing it. Vocabulary colours are off by default and do not change on hover.
