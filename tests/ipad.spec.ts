@@ -802,6 +802,9 @@ test("iPad navigation paints without resizing the scroll surface and settles wit
           event("pointermove", 2, x + 150 + i * 4.35, y - i * 1.7);
           await new Promise((resolve) => requestAnimationFrame(resolve));
         }
+        // An older device or a held gesture may pause longer than the normal
+        // idle timeout without ending the pinch.
+        await new Promise((resolve) => setTimeout(resolve, 240));
         const writesDuringNavigation = geometryWrites;
         event("pointerup", 2, x + 276.15, y - 49.3);
         event("pointerup", 1, x, y);

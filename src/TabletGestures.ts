@@ -43,6 +43,9 @@ export class TabletGestures {
   get multipleContacts() {
     return this.contacts.size > 1;
   }
+  get motionActive() {
+    return this.navigationActive || this.coastFrame !== 0;
+  }
   get navigationActive() {
     return this.navigating && !this.pen;
   }

@@ -17,6 +17,9 @@ export class ZoomMotion {
     private settled: () => void,
     private clock: GestureClock = browserClock,
   ) {}
+  get motionActive() {
+    return this.frame !== 0;
+  }
   stop() {
     this.clock.cancel(this.frame);
     this.frame = 0;

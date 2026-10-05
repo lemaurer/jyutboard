@@ -419,6 +419,18 @@ export default function App() {
       }
     );
   }
+  function commitCameraWhenIdle() {
+    // A slow frame or a held pinch is still an active gesture. Never resize
+    // the scroll surface just because no new sample arrived for 180ms.
+    if (
+      tabletGestures.current?.motionActive ||
+      zoomMotion.current?.motionActive
+    ) {
+      cameraCommit.current = setTimeout(commitCameraWhenIdle, 60);
+      return;
+    }
+    flushCamera(true);
+  }
   function queueCamera(
     view: { x: number; y: number; zoom: number },
     inFrame = false,
@@ -445,7 +457,7 @@ export default function App() {
         flushCamera();
       });
     clearTimeout(cameraCommit.current);
-    cameraCommit.current = setTimeout(() => flushCamera(true), 180);
+    cameraCommit.current = setTimeout(commitCameraWhenIdle, 180);
   }
   useEffect(() => {
     const node = viewport.current;
