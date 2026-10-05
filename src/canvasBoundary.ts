@@ -1,4 +1,6 @@
 export type Boundary = {
+  minX: number;
+  minY: number;
   maxX: number;
   maxY: number;
   limitX: number;
@@ -15,24 +17,39 @@ export function canvasBoundary(
     Math.ceil(
       Math.min(size * 0.3, Math.max(size * 0.12, 180 * Math.sqrt(zoom))),
     );
+  const inset = 40;
+  const x = width * zoom - viewportWidth,
+    y = height * zoom - viewportHeight;
   return {
-    maxX: Math.max(0, width * zoom - viewportWidth),
-    maxY: Math.max(0, height * zoom - viewportHeight),
+    minX: x < 0 ? x / 2 : -inset,
+    minY: y < 0 ? y / 2 : -inset,
+    maxX: x < 0 ? x / 2 : x + inset,
+    maxY: y < 0 ? y / 2 : y + inset,
     limitX: margin(viewportWidth),
     limitY: margin(viewportHeight),
   };
 }
 /** Continuous at the edge; progressively less travel for the same finger movement. */
-export function rubberAxis(value: number, maximum: number, limit: number) {
-  const anchor = Math.max(0, Math.min(maximum, value));
+export function rubberAxis(
+  value: number,
+  maximum: number,
+  limit: number,
+  minimum = 0,
+) {
+  const anchor = Math.max(minimum, Math.min(maximum, value));
   const distance = value - anchor;
   return (
     anchor +
     Math.sign(distance) * limit * (1 - Math.exp(-Math.abs(distance) / limit))
   );
 }
-export function unRubberAxis(value: number, maximum: number, limit: number) {
-  const anchor = Math.max(0, Math.min(maximum, value));
+export function unRubberAxis(
+  value: number,
+  maximum: number,
+  limit: number,
+  minimum = 0,
+) {
+  const anchor = Math.max(minimum, Math.min(maximum, value));
   const distance = value - anchor;
   return (
     anchor -
@@ -47,8 +64,9 @@ export function springAxis(
   velocity: number,
   maximum: number,
   elapsed: number,
+  minimum = 0,
 ) {
-  const target = Math.max(0, Math.min(maximum, value)),
+  const target = Math.max(minimum, Math.min(maximum, value)),
     displacement = value - target;
   const omega = 0.014,
     c = velocity + omega * displacement,
@@ -58,4 +76,26 @@ export function springAxis(
   return Math.abs(next) < 0.2 && Math.abs(speed) < 0.015
     ? { value: target, velocity: 0 }
     : { value: target + next, velocity: speed };
+}
+
+/** Reverse input moves the visible camera immediately, without paying back hidden overscroll. */
+export function advanceAxis(
+  value: number,
+  delta: number,
+  maximum: number,
+  limit: number,
+  minimum = 0,
+) {
+  const next = value + delta;
+  if ((value < minimum && delta > 0) || (value > maximum && delta < 0)) {
+    if ((next < minimum && delta > 0) || (next > maximum && delta < 0))
+      return next;
+    return rubberAxis(next, maximum, limit, minimum);
+  }
+  return rubberAxis(
+    unRubberAxis(value, maximum, limit, minimum) + delta,
+    maximum,
+    limit,
+    minimum,
+  );
 }

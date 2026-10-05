@@ -5,6 +5,7 @@ import {
   rubberAxis,
   unRubberAxis,
   springAxis,
+  advanceAxis,
 } from "../src/canvasBoundary";
 import { recordingMime, settledRecording } from "../src/recording";
 import { analyzeInputLocal } from "../src/language";
@@ -13,7 +14,8 @@ test("elastic bounds adapt to zoom and viewport without letting the canvas disap
     large = canvasBoundary(5600, 3600, 1024, 768, 2.5);
   assert.ok(small.limitX > 0 && small.limitX <= 768 * 0.3);
   assert.ok(large.limitX > small.limitX && large.limitX <= 1024 * 0.3);
-  assert.equal(canvasBoundary(400, 300, 1000, 800, 0.35).maxX, 0);
+  assert.equal(canvasBoundary(400, 300, 1000, 800, 0.35).maxX, -430);
+  assert.equal(small.minX, -40);
 });
 test("resistance is continuous, grows progressively, bounded, and reverses without a jump", () => {
   const limit = 180,
@@ -72,4 +74,20 @@ test("local English and Jyutping conversion always contains the same three langu
     assert.ok(card.definition);
   }
   assert.equal(analyzeInputLocal("ambiguous input", "jyutping"), null);
+});
+
+test("saturated overscroll reverses at full speed on every edge without hidden input debt", () => {
+  for (const [edge, outward] of [
+    [-40, -1],
+    [2040, 1],
+  ]) {
+    let value = edge;
+    for (let i = 0; i < 100; i++)
+      value = advanceAxis(value, outward * 160, 2040, 180, -40);
+    const reversed = advanceAxis(value, -outward * 30, 2040, 180, -40);
+    assert.ok(Math.abs(reversed - value) > 29.9);
+    for (let i = 0; i < 20; i++)
+      value = advanceAxis(value, -outward * 30, 2040, 180, -40);
+    assert.ok(value > -40 && value < 2040);
+  }
 });

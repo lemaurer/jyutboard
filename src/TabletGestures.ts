@@ -1,7 +1,7 @@
 import {
   canvasBoundary,
   rubberAxis,
-  unRubberAxis,
+  advanceAxis,
   springAxis,
   type Boundary,
 } from "./canvasBoundary";
@@ -77,7 +77,7 @@ export class TabletGestures {
     )
       return false;
     this.contacts.set(event.pointerId, { x: event.clientX, y: event.clientY });
-    this.dragView = this.rawView(this.read());
+    this.dragView = this.read();
     this.navigating ||=
       this.contacts.size > 1 ||
       (!this.manipulate(event) &&
@@ -130,12 +130,21 @@ export class TabletGestures {
       );
       const worldX = (view.x + previous.x - rect.left) / view.zoom,
         worldY = (view.y + previous.y - rect.top) / view.zoom;
-      this.dragView = {
+      const desired = {
         zoom,
         x: worldX * zoom - (next.x - rect.left),
         y: worldY * zoom - (next.y - rect.top),
       };
-      this.write(this.resist(this.dragView));
+      const b = this.bounds(zoom);
+      this.dragView =
+        Math.abs(zoom - view.zoom) > 0.000001
+          ? this.resist(desired)
+          : {
+              ...desired,
+              x: advanceAxis(view.x, dx, b.maxX, b.limitX, b.minX),
+              y: advanceAxis(view.y, dy, b.maxY, b.limitY, b.minY),
+            };
+      this.write(this.dragView);
     }
     return true;
   }
@@ -190,24 +199,16 @@ export class TabletGestures {
     const b = this.bounds(view.zoom);
     return {
       ...view,
-      x: rubberAxis(view.x, b.maxX, b.limitX),
-      y: rubberAxis(view.y, b.maxY, b.limitY),
-    };
-  }
-  private rawView(view: View) {
-    const b = this.bounds(view.zoom);
-    return {
-      ...view,
-      x: unRubberAxis(view.x, b.maxX, b.limitX),
-      y: unRubberAxis(view.y, b.maxY, b.limitY),
+      x: rubberAxis(view.x, b.maxX, b.limitX, b.minX),
+      y: rubberAxis(view.y, b.maxY, b.limitY, b.minY),
     };
   }
   private outside(view: View) {
     const b = this.bounds(view.zoom);
     return (
-      view.x < -0.1 ||
+      view.x < b.minX - 0.1 ||
       view.x > b.maxX + 0.1 ||
-      view.y < -0.1 ||
+      view.y < b.minY - 0.1 ||
       view.y > b.maxY + 0.1
     );
   }
@@ -217,8 +218,17 @@ export class TabletGestures {
   }
   panWheel(dx: number, dy: number) {
     this.stop();
-    const view = this.rawView(this.read());
-    this.write(this.resist({ ...view, x: view.x + dx, y: view.y + dy }));
+    const view = this.read(),
+      b = this.bounds(view.zoom);
+    this.write({
+      ...view,
+      x: advanceAxis(view.x, dx, b.maxX, b.limitX, b.minX),
+      y: advanceAxis(view.y, dy, b.maxY, b.limitY, b.minY),
+    });
+    this.deferSettle();
+  }
+  deferSettle() {
+    clearTimeout(this.wheelTimer);
     this.wheelTimer = setTimeout(() => this.settle(), 140);
   }
   private coast() {
@@ -235,23 +245,33 @@ export class TabletGestures {
         velocity: number,
         maximum: number,
         limit: number,
+        minimum: number,
       ) => {
-        if (position < 0 || position > maximum) {
-          const spring = springAxis(position, velocity, maximum, elapsed);
+        if (position < minimum || position > maximum) {
+          const spring = springAxis(
+            position,
+            velocity,
+            maximum,
+            elapsed,
+            minimum,
+          );
           return {
-            value: Math.max(-limit, Math.min(maximum + limit, spring.value)),
+            value: Math.max(
+              minimum - limit,
+              Math.min(maximum + limit, spring.value),
+            ),
             velocity: spring.velocity,
           };
         }
         const value = position + velocity * travel;
         return {
-          value: rubberAxis(value, maximum, limit),
+          value: rubberAxis(value, maximum, limit, minimum),
           velocity:
-            velocity * decay * (value < 0 || value > maximum ? 0.45 : 1),
+            velocity * decay * (value < minimum || value > maximum ? 0.45 : 1),
         };
       };
-      const x = step(view.x, this.velocity.x, b.maxX, b.limitX),
-        y = step(view.y, this.velocity.y, b.maxY, b.limitY);
+      const x = step(view.x, this.velocity.x, b.maxX, b.limitX, b.minX),
+        y = step(view.y, this.velocity.y, b.maxY, b.limitY, b.minY);
       this.velocity = { x: x.velocity, y: y.velocity };
       const next = { ...view, x: x.value, y: y.value };
       this.write(next);
@@ -263,8 +283,8 @@ export class TabletGestures {
       else {
         this.write({
           ...next,
-          x: Math.max(0, Math.min(b.maxX, next.x)),
-          y: Math.max(0, Math.min(b.maxY, next.y)),
+          x: Math.max(b.minX, Math.min(b.maxX, next.x)),
+          y: Math.max(b.minY, Math.min(b.maxY, next.y)),
         });
         this.stop();
       }

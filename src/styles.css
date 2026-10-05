@@ -3206,6 +3206,8 @@ summary > svg,
 
 .canvas-viewport {
   background: #e9edf3;
+  overflow: hidden;
+  overflow-anchor: none;
   overscroll-behavior: none;
 }
 .canvas-space {

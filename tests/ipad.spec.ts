@@ -614,7 +614,12 @@ test("iPad elastic edges show the surrounding desk, resist long pulls and settle
           ),
         ),
       )
-      .toBeLessThan(1);
+      .toBeLessThan(41);
+    await expect
+      .poll(
+        async () => (await page.locator(".canvas").boundingBox())!.x - box.x,
+      )
+      .toBeGreaterThan(39);
     await expect(area).toHaveCSS("background-color", "rgb(233, 237, 243)");
   } finally {
     await context.close();
@@ -651,6 +656,76 @@ test("iPad language choice sits beside the field and produces complete role-spec
     await page.getByLabel("Your lesson view").selectOption("learner");
     await expect(cards.first().locator("h2")).toHaveText("nei5 hou2");
     await expect(cards.first().locator(".card-secondary")).toHaveText("你好");
+  } finally {
+    await context.close();
+  }
+});
+
+test("WebKit shows every canvas edge and moves away immediately after a long overscroll", async () => {
+  const { page, context } = await tablet();
+  try {
+    await page.goto(
+      `/#room=${"5".repeat(48)}&relay=${encodeURIComponent(`ws://127.0.0.1:${relay.port}`)}`,
+    );
+    const area = page.locator(".canvas-viewport");
+    await page.getByRole("button", { name: "Draw", exact: true }).click();
+    for (const side of ["left", "right", "top", "bottom"]) {
+      const result = await area.evaluate(async (element, side) => {
+        const node = element as HTMLElement,
+          canvas = node.querySelector<HTMLElement>(".canvas")!;
+        const horizontal = side === "left" || side === "right",
+          positive = side === "right" || side === "bottom";
+        node.scrollLeft = horizontal
+          ? positive
+            ? node.scrollWidth
+            : canvas.offsetLeft - 40
+          : canvas.offsetLeft + 600;
+        node.scrollTop = !horizontal
+          ? positive
+            ? node.scrollHeight
+            : canvas.offsetTop - 40
+          : canvas.offsetTop + 500;
+        const frame = () =>
+          new Promise<void>((resolve) =>
+            requestAnimationFrame(() => resolve()),
+          );
+        const wheel = (delta: number) =>
+          node.dispatchEvent(
+            new WheelEvent("wheel", {
+              bubbles: true,
+              cancelable: true,
+              deltaX: horizontal ? delta : 0,
+              deltaY: horizontal ? 0 : delta,
+            }),
+          );
+        for (let i = 0; i < 60; i++) wheel((positive ? 1 : -1) * 200);
+        await frame();
+        await frame();
+        const rect = canvas.getBoundingClientRect(),
+          bounds = node.getBoundingClientRect();
+        const visibleMargin =
+          side === "left"
+            ? rect.left - bounds.left
+            : side === "right"
+              ? bounds.right - rect.right
+              : side === "top"
+                ? rect.top - bounds.top
+                : bounds.bottom - rect.bottom;
+        const before = horizontal ? node.scrollLeft : node.scrollTop;
+        wheel((positive ? -1 : 1) * 30);
+        await frame();
+        await frame();
+        return {
+          visibleMargin,
+          travel:
+            ((horizontal ? node.scrollLeft : node.scrollTop) - before) *
+            (positive ? -1 : 1),
+        };
+      }, side);
+      expect(result.visibleMargin).toBeGreaterThan(40);
+      expect(result.travel).toBeGreaterThan(28);
+      await page.waitForTimeout(700);
+    }
   } finally {
     await context.close();
   }

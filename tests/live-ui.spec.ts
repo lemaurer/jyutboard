@@ -1009,3 +1009,129 @@ test("card modes share typography, release unused height, and conversation favou
     page.getByRole("button", { name: "Send bubble to JyutDeck", exact: true }),
   ).toHaveCount(0);
 });
+
+test("touchpad saturation reverses immediately at all four canvas edges", async ({
+  browser,
+}) => {
+  const page = await blankPage(browser, false);
+  const area = page.locator(".canvas-viewport");
+  for (const axis of ["x", "y"] as const) {
+    for (const direction of [-1, 1]) {
+      const result = await area.evaluate(
+        async (element, { axis, direction }) => {
+          const node = element as HTMLElement,
+            canvas = node.querySelector<HTMLElement>(".canvas")!;
+          node.scrollLeft =
+            axis === "x"
+              ? direction < 0
+                ? canvas.offsetLeft - 40
+                : node.scrollWidth
+              : canvas.offsetLeft + 600;
+          node.scrollTop =
+            axis === "y"
+              ? direction < 0
+                ? canvas.offsetTop - 40
+                : node.scrollHeight
+              : canvas.offsetTop + 500;
+          const frame = () =>
+            new Promise<void>((resolve) =>
+              requestAnimationFrame(() => resolve()),
+            );
+          const wheel = (delta: number) =>
+            node.dispatchEvent(
+              new WheelEvent("wheel", {
+                bubbles: true,
+                cancelable: true,
+                deltaX: axis === "x" ? delta : 0,
+                deltaY: axis === "y" ? delta : 0,
+              }),
+            );
+          for (let i = 0; i < 80; i++) wheel(direction * 200);
+          await frame();
+          await frame();
+          const before = axis === "x" ? node.scrollLeft : node.scrollTop;
+          wheel(-direction * 30);
+          await frame();
+          await frame();
+          return {
+            before,
+            after: axis === "x" ? node.scrollLeft : node.scrollTop,
+          };
+        },
+        { axis, direction },
+      );
+      expect((result.after - result.before) * -direction).toBeGreaterThan(28);
+      await page.waitForTimeout(700);
+    }
+  }
+});
+
+test("touchpad pinch paints scale and position together and holds its anchor through UI renders", async ({
+  browser,
+}) => {
+  const page = await blankPage(browser, false);
+  await page.getByLabel("Cantonese phrase").fill("飲水");
+  await page.getByRole("button", { name: "Add phrase", exact: true }).click();
+  const result = await page
+    .locator(".canvas-viewport")
+    .evaluate(async (element) => {
+      const node = element as HTMLElement,
+        canvas = node.querySelector<HTMLElement>(".canvas")!;
+      const card = canvas.querySelector<HTMLElement>(".board-card")!;
+      const viewport = node.getBoundingClientRect();
+      const anchor = {
+        x: viewport.left + viewport.width / 2,
+        y: viewport.top + viewport.height / 2,
+      };
+      const before = canvas.getBoundingClientRect();
+      const world = { x: anchor.x - before.left, y: anchor.y - before.top };
+      let error = 0,
+        scaleError = 0;
+      for (let i = 0; i < 36; i++) {
+        // Multiple high-frequency events arrive before each display frame.
+        for (let j = 0; j < 3; j++)
+          node.dispatchEvent(
+            new WheelEvent("wheel", {
+              bubbles: true,
+              cancelable: true,
+              ctrlKey: true,
+              deltaY: i < 18 ? -1.5 : 1.5,
+              clientX: anchor.x,
+              clientY: anchor.y,
+            }),
+          );
+        await new Promise<void>((resolve) =>
+          requestAnimationFrame(() => resolve()),
+        );
+        canvas.dispatchEvent(
+          new PointerEvent("pointermove", {
+            bubbles: true,
+            clientX: anchor.x,
+            clientY: anchor.y,
+          }),
+        );
+        const rect = canvas.getBoundingClientRect(),
+          scale = rect.width / 5600;
+        error = Math.max(
+          error,
+          Math.abs(rect.left + world.x * scale - anchor.x),
+          Math.abs(rect.top + world.y * scale - anchor.y),
+        );
+        scaleError = Math.max(
+          scaleError,
+          Math.abs(
+            card.getBoundingClientRect().width / card.offsetWidth - scale,
+          ),
+        );
+      }
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      return {
+        error,
+        scaleError,
+        finalScale: canvas.getBoundingClientRect().width / 5600,
+      };
+    });
+  expect(result.error).toBeLessThan(2);
+  expect(result.scaleError).toBeLessThan(0.001);
+  expect(result.finalScale).toBeCloseTo(1, 3);
+});

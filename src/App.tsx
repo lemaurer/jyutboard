@@ -329,25 +329,27 @@ export default function App() {
       node.clientHeight,
       scale,
     );
-    canvasMargin.current = { x: bounds.limitX, y: bounds.limitY };
+    canvasMargin.current = {
+      x: bounds.limitX - bounds.minX,
+      y: bounds.limitY - bounds.minY,
+    };
     const space = canvas.parentElement!;
-    space.style.width = `${BOARD_WIDTH * scale + bounds.limitX * 2}px`;
-    space.style.height = `${BOARD_HEIGHT * scale + bounds.limitY * 2}px`;
-    canvas.style.left = `${bounds.limitX}px`;
-    canvas.style.top = `${bounds.limitY}px`;
-    node.scrollLeft = x + bounds.limitX;
-    node.scrollTop = y + bounds.limitY;
+    space.style.width = `${Math.max(BOARD_WIDTH * scale, node.clientWidth) + bounds.limitX * 2 + 80}px`;
+    space.style.height = `${Math.max(BOARD_HEIGHT * scale, node.clientHeight) + bounds.limitY * 2 + 80}px`;
+    canvas.style.left = `${canvasMargin.current.x}px`;
+    canvas.style.top = `${canvasMargin.current.y}px`;
+    node.scrollLeft = x + canvasMargin.current.x;
+    node.scrollTop = y + canvasMargin.current.y;
   }
-  useLayoutEffect(() => {
-    layoutCanvas(zoom);
-  }, [zoom]);
   const camera = useRef<{ x: number; y: number; zoom: number } | null>(null);
   const cameraFrame = useRef(0);
+  const cameraLabelTime = useRef(0);
   const cameraCommit = useRef<ReturnType<typeof setTimeout> | undefined>(
     undefined,
   );
   function flushCamera(commit = false) {
     cancelAnimationFrame(cameraFrame.current);
+    cameraFrame.current = 0;
     const view = camera.current,
       node = viewport.current,
       canvas = board.current;
@@ -359,29 +361,54 @@ export default function App() {
     node.scrollTop = view.y + canvasMargin.current.y;
     // Keep subpixel camera coordinates: WebKit rounds scroll offsets, which would otherwise stall the spring.
     navigationRef.current.publishView();
-    if (commit) {
-      camera.current = null;
+    if (commit || performance.now() - cameraLabelTime.current >= 100) {
+      cameraLabelTime.current = performance.now();
       setZoom(view.zoom);
     }
+    if (commit) camera.current = null;
+  }
+  function readCamera() {
+    const node = viewport.current!;
+    return (
+      camera.current ?? {
+        x: node.scrollLeft - canvasMargin.current.x,
+        y: node.scrollTop - canvasMargin.current.y,
+        zoom: zoomRef.current,
+      }
+    );
+  }
+  function queueCamera(view: { x: number; y: number; zoom: number }) {
+    const node = viewport.current!;
+    const b = canvasBoundary(
+      BOARD_WIDTH,
+      BOARD_HEIGHT,
+      node.clientWidth,
+      node.clientHeight,
+      view.zoom,
+    );
+    camera.current = {
+      ...view,
+      x: clamp(view.x, b.minX - b.limitX, b.maxX + b.limitX),
+      y: clamp(view.y, b.minY - b.limitY, b.maxY + b.limitY),
+    };
+    // Coalesce input into one paint; never split scale and position between frames.
+    if (!cameraFrame.current)
+      cameraFrame.current = requestAnimationFrame(() => {
+        cameraFrame.current = 0;
+        flushCamera();
+      });
+    clearTimeout(cameraCommit.current);
+    cameraCommit.current = setTimeout(() => flushCamera(true), 180);
   }
   useEffect(() => {
     const node = viewport.current;
     if (!node) return;
     tabletGestures.current = new TabletGestures(
       node,
-      () =>
-        camera.current ?? {
-          x: node.scrollLeft - canvasMargin.current.x,
-          y: node.scrollTop - canvasMargin.current.y,
-          zoom: zoomRef.current,
-        },
+      readCamera,
       (view) => {
         navigationRef.current.stopFollowing();
-        camera.current = view;
-        cancelAnimationFrame(cameraFrame.current);
-        cameraFrame.current = requestAnimationFrame(() => flushCamera());
-        clearTimeout(cameraCommit.current);
-        cameraCommit.current = setTimeout(() => flushCamera(true), 120);
+        queueCamera(view);
       },
       () => toolRef.current,
       (event) => {
@@ -541,10 +568,6 @@ export default function App() {
     preference("leftOpen", String(leftOpen));
   }, [leftOpen]);
   useEffect(() => {
-    zoomRef.current = zoom;
-    publishView();
-  }, [zoom]);
-  useEffect(() => {
     if (!doc || centeredSession.current === session.id) return;
     centeredSession.current = session.id;
     const node = viewport.current;
@@ -650,19 +673,19 @@ export default function App() {
     if (!peer?.view) return;
     const node = viewport.current;
     if (!node) return;
-    if (Math.abs(zoomRef.current - peer.view.zoom) > 0.002) {
-      zoomRef.current = peer.view.zoom;
-      setZoom(peer.view.zoom);
-    }
-    const left = peer.view.x * peer.view.zoom - node.clientWidth / 2;
-    const top = peer.view.y * peer.view.zoom - node.clientHeight / 2;
-    const frame = requestAnimationFrame(() => {
-      if (Math.abs(node.scrollLeft - canvasMargin.current.x - left) > 2)
-        node.scrollLeft = left + canvasMargin.current.x;
-      if (Math.abs(node.scrollTop - canvasMargin.current.y - top) > 2)
-        node.scrollTop = top + canvasMargin.current.y;
-    });
-    return () => cancelAnimationFrame(frame);
+    const target = {
+      zoom: peer.view.zoom,
+      x: peer.view.x * peer.view.zoom - node.clientWidth / 2,
+      y: peer.view.y * peer.view.zoom - node.clientHeight / 2,
+    };
+    const current = readCamera();
+    if (
+      Math.abs(current.zoom - target.zoom) < 0.0001 &&
+      Math.abs(current.x - target.x) < 1 &&
+      Math.abs(current.y - target.y) < 1
+    )
+      return;
+    queueCamera(target);
   }, [peers, followPeerId]);
   useEffect(() => {
     for (const peer of peers) {
@@ -711,22 +734,26 @@ export default function App() {
       const bounds = node.getBoundingClientRect();
       const cursorX = event.clientX - bounds.left;
       const cursorY = event.clientY - bounds.top;
-      const oldZoom = zoomRef.current;
+      tabletGestures.current?.stop();
+      navigationRef.current.stopFollowing();
+      const view = readCamera();
+      const unit =
+        event.deltaMode === 1
+          ? 16
+          : event.deltaMode === 2
+            ? node.clientHeight
+            : 1;
       const nextZoom = clamp(
-        oldZoom * Math.exp(-event.deltaY * 0.008),
+        view.zoom * Math.exp(-event.deltaY * unit * 0.008),
         0.35,
         2.5,
       );
-      const pointX =
-        (node.scrollLeft - canvasMargin.current.x + cursorX) / oldZoom;
-      const pointY =
-        (node.scrollTop - canvasMargin.current.y + cursorY) / oldZoom;
-      zoomRef.current = nextZoom;
-      setZoom(nextZoom);
-      requestAnimationFrame(() => {
-        node.scrollLeft = pointX * nextZoom - cursorX + canvasMargin.current.x;
-        node.scrollTop = pointY * nextZoom - cursorY + canvasMargin.current.y;
+      queueCamera({
+        zoom: nextZoom,
+        x: ((view.x + cursorX) / view.zoom) * nextZoom - cursorX,
+        y: ((view.y + cursorY) / view.zoom) * nextZoom - cursorY,
       });
+      tabletGestures.current?.deferSettle();
     }
     node.addEventListener("wheel", wheel, { passive: false });
     return () => node.removeEventListener("wheel", wheel);
@@ -865,6 +892,11 @@ export default function App() {
   function centerView(x: number, y: number, scale = zoomRef.current) {
     const node = viewport.current;
     if (!node) return;
+    tabletGestures.current?.stop();
+    cancelAnimationFrame(cameraFrame.current);
+    cameraFrame.current = 0;
+    clearTimeout(cameraCommit.current);
+    camera.current = null;
     node.scrollLeft =
       clamp(
         x * scale - node.clientWidth / 2,
@@ -1915,22 +1947,19 @@ export default function App() {
   }
   function zoomBy(delta: number) {
     const node = viewport.current;
-    const oldZoom = zoomRef.current;
-    const nextZoom = clamp(oldZoom + delta, 0.35, 2.5);
-    if (!node) {
-      setZoom(nextZoom);
-      return;
-    }
-    const cx = node.clientWidth / 2;
-    const cy = node.clientHeight / 2;
-    const x = (node.scrollLeft - canvasMargin.current.x + cx) / oldZoom;
-    const y = (node.scrollTop - canvasMargin.current.y + cy) / oldZoom;
-    zoomRef.current = nextZoom;
-    setZoom(nextZoom);
-    requestAnimationFrame(() => {
-      node.scrollLeft = x * nextZoom - cx + canvasMargin.current.x;
-      node.scrollTop = y * nextZoom - cy + canvasMargin.current.y;
+    if (!node) return;
+    tabletGestures.current?.stop();
+    stopFollowing();
+    const view = readCamera(),
+      nextZoom = clamp(view.zoom + delta, 0.35, 2.5);
+    const cx = node.clientWidth / 2,
+      cy = node.clientHeight / 2;
+    queueCamera({
+      zoom: nextZoom,
+      x: ((view.x + cx) / view.zoom) * nextZoom - cx,
+      y: ((view.y + cy) / view.zoom) * nextZoom - cy,
     });
+    tabletGestures.current?.deferSettle();
   }
   async function host() {
     setSharingBusy(true);
@@ -2839,17 +2868,10 @@ export default function App() {
                 if (navigation) e.stopPropagation();
               }}
             >
-              <div
-                className="canvas-space"
-                style={{
-                  width: BOARD_WIDTH * zoom + canvasMargin.current.x * 2,
-                  height: BOARD_HEIGHT * zoom + canvasMargin.current.y * 2,
-                }}
-              >
+              <div className="canvas-space">
                 <div
                   className={`canvas ${tablet ? "tablet-canvas" : ""} tool-${tool} ${connectFrom ? "connecting" : ""}`}
                   ref={board}
-                  style={{ transform: `scale(${zoom})` }}
                   onPointerMove={pointerMove}
                   onPointerUp={endPointer}
                   onPointerCancel={endPointer}
