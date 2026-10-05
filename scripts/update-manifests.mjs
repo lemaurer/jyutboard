@@ -4,15 +4,20 @@ import { join } from "node:path";
 const directory = process.argv[2] || "release";
 const { version } = JSON.parse(await readFile("package.json", "utf8"));
 const files = await readdir(directory);
-for (const file of files) {
-  const match = /^JyutBoard-[\d.]+-(arm64|x64)-mac\.zip$/.exec(file);
+for (let file of files) {
+  const match = /^JyutBoard-[\d.]+(?:-(arm64|x64))?-mac\.zip$/.exec(file);
   if (
     (!match || !file.startsWith(`JyutBoard-${version}-`)) &&
     file !== "JyutBoard-Setup.exe"
   )
     continue;
   const platform = match ? "darwin" : "win32",
-    arch = match ? match[1] : "x64";
+    arch = match ? match[1] || "x64" : "x64";
+  if (match && !match[1]) {
+    const explicit = `JyutBoard-${version}-x64-mac.zip`;
+    await copyFile(join(directory, file), join(directory, explicit));
+    file = explicit;
+  }
   const bytes = await readFile(join(directory, file));
   const manifest = {
     version,
@@ -28,7 +33,9 @@ for (const file of files) {
   );
   if (match) {
     const dmg = files.find(
-      (name) => name === `JyutBoard-${version}-${arch}.dmg`,
+      (name) =>
+        name === `JyutBoard-${version}-${arch}.dmg` ||
+        (arch === "x64" && name === `JyutBoard-${version}.dmg`),
     );
     if (dmg)
       await copyFile(

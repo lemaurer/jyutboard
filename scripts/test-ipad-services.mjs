@@ -36,6 +36,13 @@ try {
   const audio =
     "data:audio/mp4;base64," + (await readFile(audioFile)).toString("base64");
   const ipad = await context.newPage();
+  ipad.on("requestfailed", (r) =>
+    console.log(
+      "Request failed:",
+      new URL(r.url()).pathname,
+      r.failure()?.errorText,
+    ),
+  );
   ipad.on("pageerror", (e) => console.log("WebKit error:", e.message));
   ipad.on("console", (e) => {
     if (e.text().startsWith("[fixture]")) console.log(e.text());
@@ -107,6 +114,24 @@ try {
     });
   await ipad.waitForTimeout(4000);
   await mic.click();
+  await expect
+    .poll(
+      async () =>
+        (await ipad.getByTestId("phrase-card").count()) ||
+        (await ipad
+          .getByRole("button", { name: "Retry transcript", exact: true })
+          .count()),
+      { timeout: 60000 },
+    )
+    .toBeGreaterThan(0);
+  if (
+    await ipad
+      .getByRole("button", { name: "Retry transcript", exact: true })
+      .count()
+  )
+    await ipad
+      .getByRole("button", { name: "Retry transcript", exact: true })
+      .click();
   await expect(ipad.getByTestId("phrase-card"))
     .toHaveCount(1, { timeout: 60000 })
     .catch(async (e) => {
