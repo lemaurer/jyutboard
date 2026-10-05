@@ -34,7 +34,11 @@ export function DrawingLayer({
         </marker>
       </defs>
       {connectors.map((connector) => (
-        <g key={connector.id} data-testid="connector">
+        <g
+          key={connector.id}
+          data-testid="connector"
+          data-connector-id={connector.id}
+        >
           <polyline
             className={selected.has(connector.id) ? "selected-stroke" : ""}
             points={connector.points.map((p) => p.join(",")).join(" ")}

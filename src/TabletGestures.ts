@@ -28,12 +28,13 @@ export class TabletGestures {
   private motionTime = 0;
   private coastFrame = 0;
   private zooming = false;
+  private springRate = 0.014;
   private dragView?: View;
   private wheelTimer?: ReturnType<typeof setTimeout>;
   constructor(
     private viewport: HTMLElement,
     private read: () => View,
-    private write: (view: View) => void,
+    private write: (view: View, inFrame?: boolean) => void,
     private tool: () => string,
     private manipulate: (event: PointerEvent) => boolean = () => false,
     private clock: GestureClock = browserClock,
@@ -60,6 +61,7 @@ export class TabletGestures {
     this.sampleTime = this.clock.now();
     this.motionTime = 0;
     this.zooming = false;
+    this.springRate = 0.014;
     if (event.pointerType === "pen") {
       this.contacts.clear();
       this.navigating = false;
@@ -229,7 +231,8 @@ export class TabletGestures {
   }
   deferSettle() {
     clearTimeout(this.wheelTimer);
-    this.wheelTimer = setTimeout(() => this.settle(), 140);
+    this.springRate = 0.024;
+    this.wheelTimer = setTimeout(() => this.settle(), 75);
   }
   private coast() {
     let previous = this.clock.now();
@@ -254,6 +257,7 @@ export class TabletGestures {
             maximum,
             elapsed,
             minimum,
+            this.springRate,
           );
           return {
             value: Math.max(
@@ -274,18 +278,21 @@ export class TabletGestures {
         y = step(view.y, this.velocity.y, b.maxY, b.limitY, b.minY);
       this.velocity = { x: x.velocity, y: y.velocity };
       const next = { ...view, x: x.value, y: y.value };
-      this.write(next);
+      this.write(next, true);
       if (
         this.outside(next) ||
         Math.hypot(this.velocity.x, this.velocity.y) > 0.035
       )
         this.coastFrame = this.clock.frame(tick);
       else {
-        this.write({
-          ...next,
-          x: Math.max(b.minX, Math.min(b.maxX, next.x)),
-          y: Math.max(b.minY, Math.min(b.maxY, next.y)),
-        });
+        this.write(
+          {
+            ...next,
+            x: Math.max(b.minX, Math.min(b.maxX, next.x)),
+            y: Math.max(b.minY, Math.min(b.maxY, next.y)),
+          },
+          true,
+        );
         this.stop();
       }
     };

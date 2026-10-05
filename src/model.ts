@@ -59,6 +59,9 @@ export type Card = {
   height: number;
   textScale: number;
   tint: string;
+  borderColor: string;
+  borderWidth: number;
+  borderStyle: "solid" | "dashed" | "dotted";
   tableVariant: "phrases" | "vocabulary" | "pattern" | "qa" | "comparison";
   tableStyle: "minimal" | "ruled" | "cards";
   audio?: string;
@@ -132,6 +135,9 @@ export function createCard(fields: Partial<Card> = {}): Card {
     height: 0,
     textScale: 1,
     tint: "",
+    borderColor: "#aab8cc",
+    borderWidth: 0,
+    borderStyle: "solid",
     tableVariant: "phrases",
     tableStyle: "minimal",
     ...fields,
@@ -241,6 +247,12 @@ const wordSchema = z.object({
   state: z.enum(["new", "learning", "known", "queued", "unknown"]).optional(),
 });
 export const tableRowSchema = z.object({
+  borderColor: z
+    .string()
+    .regex(/^#[0-9a-fA-F]{6}$/)
+    .default("#aab8cc"),
+  borderWidth: z.number().min(0).max(6).default(0),
+  borderStyle: z.enum(["solid", "dashed", "dotted"]).default("solid"),
   audio: z
     .string()
     .max(2_800_000)
@@ -313,6 +325,12 @@ export const cardSchema = z.object({
     .string()
     .regex(/^$|^#[0-9a-fA-F]{6}$/)
     .default(""),
+  borderColor: z
+    .string()
+    .regex(/^#[0-9a-fA-F]{6}$/)
+    .default("#aab8cc"),
+  borderWidth: z.number().min(0).max(6).default(0),
+  borderStyle: z.enum(["solid", "dashed", "dotted"]).default("solid"),
   audio: z
     .string()
     .max(2_800_000)
@@ -352,10 +370,12 @@ export function inviteFor(room: string, relay: string) {
 }
 export function parseInvite(value: string) {
   const url = new URL(value.trim());
-  if (!(
-    (url.protocol === "jyutboard:" && url.hostname === "join") ||
-    (url.protocol === "https:" && url.pathname === "/")
-  ))
+  if (
+    !(
+      (url.protocol === "jyutboard:" && url.hostname === "join") ||
+      (url.protocol === "https:" && url.pathname === "/")
+    )
+  )
     throw new Error("Paste a JyutBoard invitation.");
   const p = new URLSearchParams(url.hash.slice(1));
   const room = p.get("room") ?? "";

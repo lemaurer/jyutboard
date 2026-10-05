@@ -91,3 +91,28 @@ test("saturated overscroll reverses at full speed on every edge without hidden i
     assert.ok(value > -40 && value < 2040);
   }
 });
+
+test("desktop overscroll is firmer and its spring settles quickly without bouncing", () => {
+  const touch = canvasBoundary(5600, 3600, 1024, 768, 1),
+    desktop = canvasBoundary(5600, 3600, 1024, 768, 1, true);
+  assert.ok(desktop.limitX < touch.limitX * 0.6);
+  assert.ok(
+    Math.abs(rubberAxis(-300, 0, desktop.limitX)) <
+      Math.abs(rubberAxis(-300, 0, touch.limitX)),
+  );
+  let value = desktop.minX - desktop.limitX,
+    velocity = 0;
+  for (let i = 0; i < 30; i++) {
+    const next = springAxis(
+      value,
+      velocity,
+      desktop.maxX,
+      1000 / 60,
+      desktop.minX,
+      0.024,
+    );
+    assert.ok(next.value >= value && next.value <= desktop.minX);
+    ({ value, velocity } = next);
+  }
+  assert.equal(value, desktop.minX);
+});

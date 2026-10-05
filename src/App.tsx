@@ -1,3 +1,7 @@
+import { LessonLibrary } from "./LessonLibrary";
+import { CardBorder } from "./CardBorder";
+import { phraseInput, inputLanguage } from "./phraseInput";
+import { ZoomMotion } from "./ZoomMotion";
 import { canvasBoundary } from "./canvasBoundary";
 import { lassoHitsBox, lassoHitsStroke } from "./lasso";
 import { inkOutline } from "./ink";
@@ -84,7 +88,7 @@ import {
   type TableRow,
   type Word,
 } from "./model";
-import { analyzeLocal, analyzeInputLocal, translatePublic } from "./language";
+import { analyzeLocal, translatePublic } from "./language";
 import { loadPreference, preference, remember, sessions } from "./storage";
 import { useLesson } from "./useLesson";
 import { AudioRecorder } from "./AudioRecorder";
@@ -316,10 +320,26 @@ export default function App() {
   const navigationRef = useRef({ stopFollowing, publishView, selectedItems });
   navigationRef.current = { stopFollowing, publishView, selectedItems };
   const canvasMargin = useRef({ x: 0, y: 0 });
+  const canvasLayout = useRef({ zoom: 0, width: 0, height: 0 });
+  const zoomLabel = useRef<HTMLSpanElement>(null);
+  const zoomMotion = useRef<ZoomMotion | null>(null);
+  const cameraTransient = useRef(false);
+  const cameraScroll = useRef({ x: 0, y: 0 });
+  const cameraRest = useRef({ x: 0, y: 0 });
   function layoutCanvas(scale: number) {
     const node = viewport.current,
       canvas = board.current;
     if (!node || !canvas) return;
+    const width = node.clientWidth,
+      height = node.clientHeight;
+    const previous = canvasLayout.current;
+    if (
+      previous.zoom === scale &&
+      previous.width === width &&
+      previous.height === height
+    )
+      return;
+    canvasLayout.current = { zoom: scale, width, height };
     const x = node.scrollLeft - canvasMargin.current.x,
       y = node.scrollTop - canvasMargin.current.y;
     const bounds = canvasBoundary(
@@ -328,14 +348,15 @@ export default function App() {
       node.clientWidth,
       node.clientHeight,
       scale,
+      !tablet,
     );
     canvasMargin.current = {
       x: bounds.limitX - bounds.minX,
       y: bounds.limitY - bounds.minY,
     };
     const space = canvas.parentElement!;
-    space.style.width = `${Math.max(BOARD_WIDTH * scale, node.clientWidth) + bounds.limitX * 2 + 80}px`;
-    space.style.height = `${Math.max(BOARD_HEIGHT * scale, node.clientHeight) + bounds.limitY * 2 + 80}px`;
+    space.style.width = `${width + bounds.maxX - bounds.minX + bounds.limitX * 2}px`;
+    space.style.height = `${height + bounds.maxY - bounds.minY + bounds.limitY * 2}px`;
     canvas.style.left = `${canvasMargin.current.x}px`;
     canvas.style.top = `${canvasMargin.current.y}px`;
     node.scrollLeft = x + canvasMargin.current.x;
@@ -343,7 +364,6 @@ export default function App() {
   }
   const camera = useRef<{ x: number; y: number; zoom: number } | null>(null);
   const cameraFrame = useRef(0);
-  const cameraLabelTime = useRef(0);
   const cameraCommit = useRef<ReturnType<typeof setTimeout> | undefined>(
     undefined,
   );
@@ -354,30 +374,55 @@ export default function App() {
       node = viewport.current,
       canvas = board.current;
     if (!view || !node || !canvas) return;
-    layoutCanvas(view.zoom);
-    canvas.style.transform = `scale(${view.zoom})`;
-    zoomRef.current = view.zoom;
-    node.scrollLeft = view.x + canvasMargin.current.x;
-    node.scrollTop = view.y + canvasMargin.current.y;
-    // Keep subpixel camera coordinates: WebKit rounds scroll offsets, which would otherwise stall the spring.
-    navigationRef.current.publishView();
-    if (commit || performance.now() - cameraLabelTime.current >= 100) {
-      cameraLabelTime.current = performance.now();
+    if (commit) {
+      // Reconcile scroll geometry only after navigation pauses. During movement
+      // the clipped viewport uses a compositor transform, avoiding per-frame layout.
+      cameraTransient.current = false;
+      layoutCanvas(view.zoom);
+      canvas.style.transform = `scale(${view.zoom})`;
+      canvas.style.willChange = "";
+      node.scrollLeft = view.x + canvasMargin.current.x;
+      node.scrollTop = view.y + canvasMargin.current.y;
+      // WebKit rounds native scroll positions. Keep the fractional remainder
+      // in the transform so settling never nudges the artwork by a pixel.
+      cameraRest.current = {
+        x: node.scrollLeft - canvasMargin.current.x - view.x,
+        y: node.scrollTop - canvasMargin.current.y - view.y,
+      };
+      canvas.style.transform = `translate3d(${cameraRest.current.x}px, ${cameraRest.current.y}px, 0) scale(${view.zoom})`;
+      camera.current = null;
       setZoom(view.zoom);
+    } else {
+      cameraScroll.current = { x: node.scrollLeft, y: node.scrollTop };
+      const dx = cameraScroll.current.x - canvasMargin.current.x - view.x;
+      const dy = cameraScroll.current.y - canvasMargin.current.y - view.y;
+      canvas.style.willChange = "transform";
+      canvas.style.transform = `translate3d(${dx}px, ${dy}px, 0) scale(${view.zoom})`;
+      cameraTransient.current = true;
     }
-    if (commit) camera.current = null;
+    zoomRef.current = view.zoom;
+    if (zoomLabel.current) {
+      const label = `${Math.round(view.zoom * 100)}%`;
+      if (zoomLabel.current.textContent !== label)
+        zoomLabel.current.textContent = label;
+    }
+    // Publish the logical view, never force a layout read after writing the transform.
+    navigationRef.current.publishView();
   }
   function readCamera() {
     const node = viewport.current!;
     return (
       camera.current ?? {
-        x: node.scrollLeft - canvasMargin.current.x,
-        y: node.scrollTop - canvasMargin.current.y,
+        x: node.scrollLeft - canvasMargin.current.x - cameraRest.current.x,
+        y: node.scrollTop - canvasMargin.current.y - cameraRest.current.y,
         zoom: zoomRef.current,
       }
     );
   }
-  function queueCamera(view: { x: number; y: number; zoom: number }) {
+  function queueCamera(
+    view: { x: number; y: number; zoom: number },
+    inFrame = false,
+  ) {
     const node = viewport.current!;
     const b = canvasBoundary(
       BOARD_WIDTH,
@@ -385,6 +430,7 @@ export default function App() {
       node.clientWidth,
       node.clientHeight,
       view.zoom,
+      !tablet,
     );
     camera.current = {
       ...view,
@@ -392,7 +438,8 @@ export default function App() {
       y: clamp(view.y, b.minY - b.limitY, b.maxY + b.limitY),
     };
     // Coalesce input into one paint; never split scale and position between frames.
-    if (!cameraFrame.current)
+    if (inFrame) flushCamera();
+    else if (!cameraFrame.current)
       cameraFrame.current = requestAnimationFrame(() => {
         cameraFrame.current = 0;
         flushCamera();
@@ -406,9 +453,9 @@ export default function App() {
     tabletGestures.current = new TabletGestures(
       node,
       readCamera,
-      (view) => {
+      (view, inFrame) => {
         navigationRef.current.stopFollowing();
-        queueCamera(view);
+        queueCamera(view, inFrame);
       },
       () => toolRef.current,
       (event) => {
@@ -418,9 +465,9 @@ export default function App() {
           target.closest<SVGElement>("[data-stroke-id]")?.dataset.strokeId;
         return Boolean(
           id &&
-          (event.pointerType === "touch" ||
-            navigationRef.current.selectedItems.has(id)) &&
-          !["laser", "erase"].includes(toolRef.current),
+            (event.pointerType === "touch" ||
+              navigationRef.current.selectedItems.has(id)) &&
+            !["laser", "erase"].includes(toolRef.current),
         );
       },
       undefined,
@@ -431,6 +478,7 @@ export default function App() {
           node.clientWidth,
           node.clientHeight,
           scale,
+          !tablet,
         ),
     );
     const releasePen = (event: globalThis.PointerEvent) =>
@@ -459,7 +507,8 @@ export default function App() {
     const node = viewport.current;
     if (!node) return;
     const layout = () => {
-      layoutCanvas(zoomRef.current);
+      if (camera.current) flushCamera(true);
+      else layoutCanvas(zoomRef.current);
       const bounds = node.getBoundingClientRect();
       document.documentElement.style.setProperty(
         "--details-top",
@@ -498,6 +547,7 @@ export default function App() {
   const ownCursor = useRef<[number, number] | null>(null);
   const centeredSession = useRef<string | null>(null);
   const translationRequests = useRef(new Map<string, number>());
+  const translationSequence = useRef(0);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
     undefined,
   );
@@ -634,7 +684,14 @@ export default function App() {
   useEffect(() => {
     const node = viewport.current;
     if (!node) return;
-    const onScroll = () => publishView();
+    const onScroll = () => {
+      if (cameraTransient.current && camera.current) {
+        camera.current.x += node.scrollLeft - cameraScroll.current.x;
+        camera.current.y += node.scrollTop - cameraScroll.current.y;
+        cameraScroll.current = { x: node.scrollLeft, y: node.scrollTop };
+      }
+      publishView();
+    };
     node.addEventListener("scroll", onScroll, { passive: true });
     return () => {
       node.removeEventListener("scroll", onScroll);
@@ -713,9 +770,16 @@ export default function App() {
   useEffect(() => {
     const node = viewport.current;
     if (!node) return;
+    const motion = new ZoomMotion(readCamera, queueCamera, () =>
+      tabletGestures.current?.deferSettle(),
+    );
+    zoomMotion.current = motion;
+    const stopZoom = () => motion.stop();
+    window.addEventListener("pointerdown", stopZoom, true);
     function wheel(event: WheelEvent) {
       if (!node) return;
       if (!(event.ctrlKey || event.metaKey || event.altKey)) {
+        motion.stop();
         if ((event.target as Element).closest("textarea,input,select")) return;
         event.preventDefault();
         const unit =
@@ -743,20 +807,15 @@ export default function App() {
           : event.deltaMode === 2
             ? node.clientHeight
             : 1;
-      const nextZoom = clamp(
-        view.zoom * Math.exp(-event.deltaY * unit * 0.008),
-        0.35,
-        2.5,
-      );
-      queueCamera({
-        zoom: nextZoom,
-        x: ((view.x + cursorX) / view.zoom) * nextZoom - cursorX,
-        y: ((view.y + cursorY) / view.zoom) * nextZoom - cursorY,
-      });
-      tabletGestures.current?.deferSettle();
+      motion.wheel(event.deltaY * unit, cursorX, cursorY);
     }
     node.addEventListener("wheel", wheel, { passive: false });
-    return () => node.removeEventListener("wheel", wheel);
+    return () => {
+      motion.stop();
+      zoomMotion.current = null;
+      window.removeEventListener("pointerdown", stopZoom, true);
+      node.removeEventListener("wheel", wheel);
+    };
   }, []);
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
@@ -858,6 +917,7 @@ export default function App() {
     setConnectFrom(null);
   }
   function switchSession(value: Session) {
+    zoomMotion.current?.stop();
     setSession(value);
     setHistory(remember(value));
     clearSelection();
@@ -890,9 +950,11 @@ export default function App() {
     ];
   }
   function centerView(x: number, y: number, scale = zoomRef.current) {
+    zoomMotion.current?.stop();
     const node = viewport.current;
     if (!node) return;
     tabletGestures.current?.stop();
+    if (camera.current) flushCamera(true);
     cancelAnimationFrame(cameraFrame.current);
     cameraFrame.current = 0;
     clearTimeout(cameraCommit.current);
@@ -913,11 +975,10 @@ export default function App() {
   function viewCenter(): [number, number] {
     const node = viewport.current;
     if (!node) return [CENTER_X, CENTER_Y];
+    const view = readCamera();
     return [
-      (node.scrollLeft - canvasMargin.current.x + node.clientWidth / 2) /
-        zoomRef.current,
-      (node.scrollTop - canvasMargin.current.y + node.clientHeight / 2) /
-        zoomRef.current,
+      (view.x + node.clientWidth / 2) / view.zoom,
+      (view.y + node.clientHeight / 2) / view.zoom,
     ];
   }
   function publishView() {
@@ -956,7 +1017,7 @@ export default function App() {
   }
   async function enrichPhrase(document: Y.Doc, card: Card) {
     if (!online || !card.chinese.trim()) return;
-    const revision = Date.now();
+    const revision = ++translationSequence.current;
     translationRequests.current.set(card.id, revision);
     try {
       const definition = await (window.desktop
@@ -994,7 +1055,7 @@ export default function App() {
   async function enrichRow(document: Y.Doc, cardId: string, row: TableRow) {
     if (!online || !row.chinese.trim()) return;
     const key = `${cardId}:${row.id}`;
-    const revision = Date.now();
+    const revision = ++translationSequence.current;
     translationRequests.current.set(key, revision);
     try {
       const definition = await (window.desktop
@@ -1043,22 +1104,13 @@ export default function App() {
       notify("Keep each phrase under 2,000 characters.");
       return;
     }
-    if (language === "chinese" && !/\p{Script=Han}/u.test(text)) {
-      notify(
-        "Choose Jyutping or English beside the input, or type Chinese characters.",
-      );
-      return;
-    }
+    language = inputLanguage(text, language);
     const content = text.trim();
     const document = doc;
     creatingRef.current = true;
     setCreatingPhrase(true);
     try {
-      const analyzed =
-        language === "chinese"
-          ? { chinese: content, ...analyzeLocal(content) }
-          : (analyzeInputLocal(content, language) ??
-            (await window.desktop?.analyze?.(content, language)));
+      const analyzed = await phraseInput(content, language);
       if (
         !analyzed?.chinese?.trim() ||
         !analyzed.jyutping?.trim() ||
@@ -1314,6 +1366,7 @@ export default function App() {
       snapshot.move = [moveX, moveY];
       cancelAnimationFrame(dragFrame.current);
       dragFrame.current = requestAnimationFrame(() => {
+        paintConnectors(snapshot.cards, moveX, moveY);
         for (const card of snapshot.cards) {
           const node = cardElements.current.get(card.id);
           if (node) node.style.translate = `${moveX}px ${moveY}px`;
@@ -1359,9 +1412,31 @@ export default function App() {
       }
     }
   }
-  function cancelDrag() {
+  function paintConnectors(moving: Card[], dx: number, dy: number) {
+    const ids = new Set(moving.map((card) => card.id));
+    for (const connector of connectors) {
+      if (!ids.has(connector.from) && !ids.has(connector.to)) continue;
+      const a = cards.find((card) => card.id === connector.from),
+        b = cards.find((card) => card.id === connector.to);
+      if (!a || !b) continue;
+      const box = (card: Card) => {
+        const value = cardBox(card);
+        return ids.has(card.id)
+          ? { ...value, x: value.x + dx, y: value.y + dy }
+          : value;
+      };
+      const points = connectorPoints(box(a), box(b))
+        .map((point) => point.join(","))
+        .join(" ");
+      board.current
+        ?.querySelectorAll(`[data-connector-id="${connector.id}"] polyline`)
+        .forEach((node) => node.setAttribute("points", points));
+    }
+  }
+  function cancelDrag(committed = false) {
     cancelAnimationFrame(dragFrame.current);
     const snapshot = drag.current;
+    if (snapshot && !committed) paintConnectors(snapshot.cards, 0, 0);
     for (const card of snapshot?.cards || []) {
       const node = cardElements.current.get(card.id);
       if (node) node.style.translate = "";
@@ -1440,7 +1515,7 @@ export default function App() {
       });
       lesson.stopCapturing();
     }
-    cancelDrag();
+    cancelDrag(true);
     resizing.current = null;
     erasing.current = false;
     if (path.current && doc) {
@@ -1557,6 +1632,54 @@ export default function App() {
     setSelectedStroke(ids.size === 1 ? stroke.id : null);
     if (ids.has(stroke.id)) beginDrag(event, ids);
   }
+  async function completeAnswer(
+    cardId: string,
+    row: TableRow,
+    text: string,
+    language?: SourceLanguage,
+  ) {
+    if (!doc || !text.trim()) return;
+    const document = doc,
+      key = `answer:${cardId}:${row.id}`,
+      revision = ++translationSequence.current;
+    translationRequests.current.set(key, revision);
+    const snapshot = getTableRow(document, cardId, row.id);
+    try {
+      const value = await phraseInput(text, language);
+      const current = getTableRow(document, cardId, row.id);
+      if (
+        !current ||
+        (["answerChinese", "answerJyutping", "answerDefinition"] as const).some(
+          (field) => current[field] !== snapshot?.[field],
+        )
+      )
+        return;
+      if (
+        translationRequests.current.get(key) !== revision ||
+        document !== currentDocument.current ||
+        !getTableRow(document, cardId, row.id)
+      )
+        return;
+      patchTableRow(document, cardId, row.id, {
+        answerChinese: value.chinese,
+        answerJyutping: value.jyutping,
+        answerDefinition: value.definition,
+      });
+      if (inputLanguage(text, language) === "chinese" && online) {
+        const meaning = await window.desktop?.translate(value.chinese);
+        if (
+          meaning &&
+          translationRequests.current.get(key) === revision &&
+          getTableRow(document, cardId, row.id)?.answerChinese === value.chinese
+        )
+          patchTableRow(document, cardId, row.id, {
+            answerDefinition: meaning,
+          });
+      }
+    } catch (error) {
+      notify(errorText(error));
+    }
+  }
   function changeAnswer(cardId: string, row: TableRow, text: string) {
     if (!doc) return;
     const local = analyzeLocal(text);
@@ -1568,7 +1691,7 @@ export default function App() {
     if (online && text.trim()) {
       const document = doc;
       const key = `answer:${cardId}:${row.id}`;
-      const revision = Date.now();
+      const revision = ++translationSequence.current;
       translationRequests.current.set(key, revision);
       void (
         window.desktop ? window.desktop.translate(text) : translatePublic(text)
@@ -1609,6 +1732,7 @@ export default function App() {
   }
   function editPhraseInPlace(card: Card, text: string) {
     if (!doc) return;
+    translationRequests.current.set(card.id, ++translationSequence.current);
     if (teacher)
       patchCard(doc, card.id, {
         chinese: text,
@@ -1618,6 +1742,84 @@ export default function App() {
     else if (card.sourceLanguage === "english")
       patchCard(doc, card.id, { definition: text, translation: "edited" });
     else patchCard(doc, card.id, { jyutping: text });
+  }
+  async function completePhrase(card: Card, text: string) {
+    if (!doc || !text.trim()) return;
+    const document = doc,
+      revision = ++translationSequence.current;
+    translationRequests.current.set(card.id, revision);
+    const fields = ["chinese", "jyutping", "definition"] as const;
+    const original = document.getMap<Y.Map<unknown>>("cards").get(card.id);
+    const snapshot = fields.map((field) => original?.get(field));
+    try {
+      const analyzed = await phraseInput(text);
+      const current = document.getMap<Y.Map<unknown>>("cards").get(card.id);
+      if (
+        !current ||
+        fields.some((field, index) => current.get(field) !== snapshot[index])
+      )
+        return;
+      if (
+        translationRequests.current.get(card.id) !== revision ||
+        document !== currentDocument.current
+      )
+        return;
+      patchCard(document, card.id, {
+        ...analyzed,
+        sourceLanguage: "chinese",
+        receipt: "",
+      });
+      if (inputLanguage(text) === "chinese")
+        void enrichPhrase(document, { ...card, ...analyzed });
+    } catch (error) {
+      notify(errorText(error));
+    }
+  }
+  async function completeRow(
+    cardId: string,
+    row: TableRow,
+    text: string,
+    language?: SourceLanguage,
+    audio?: string,
+  ) {
+    if (!doc) return;
+    if (audio) patchTableRow(doc, cardId, row.id, { audio });
+    if (!text.trim()) return;
+    const document = doc,
+      key = `${cardId}:${row.id}`,
+      revision = ++translationSequence.current;
+    translationRequests.current.set(key, revision);
+    const snapshot = getTableRow(document, cardId, row.id);
+    try {
+      const analyzed = await phraseInput(text, language);
+      const current = getTableRow(document, cardId, row.id);
+      if (
+        !current ||
+        (["chinese", "jyutping", "definition"] as const).some(
+          (field) => current[field] !== snapshot?.[field],
+        )
+      )
+        return;
+      if (
+        translationRequests.current.get(key) !== revision ||
+        document !== currentDocument.current ||
+        !getTableRow(document, cardId, row.id)
+      )
+        return;
+      const patch = {
+        ...analyzed,
+        ...(audio ? { audio } : {}),
+        translation:
+          inputLanguage(text, language) === "chinese"
+            ? analyzed.translation
+            : "translated",
+      };
+      patchTableRow(document, cardId, row.id, patch);
+      if (inputLanguage(text, language) === "chinese")
+        void enrichRow(document, cardId, { ...row, ...patch });
+    } catch (error) {
+      notify(errorText(error));
+    }
   }
   function speechPhrase(text: string, audio: string) {
     if (!doc) return;
@@ -1777,6 +1979,10 @@ export default function App() {
       left: card.x,
       top: card.y,
       width: card.width || undefined,
+      maxWidth: card.width || undefined,
+      borderColor: card.borderColor,
+      borderWidth: card.borderWidth,
+      borderStyle: card.borderStyle,
       minHeight: card.height || undefined,
       height:
         card.kind === "sticker" ? card.height || card.width || 118 : undefined,
@@ -1936,6 +2142,10 @@ export default function App() {
   }
   function changeRowChinese(cardId: string, row: TableRow, value: string) {
     if (!doc) return;
+    translationRequests.current.set(
+      `${cardId}:${row.id}`,
+      ++translationSequence.current,
+    );
     patchTableRow(doc, cardId, row.id, {
       chinese: value,
       ...analyzeLocal(value),
@@ -1946,6 +2156,7 @@ export default function App() {
     updateWords(analyzeLocal(activeRow?.chinese ?? active.chinese).words);
   }
   function zoomBy(delta: number) {
+    zoomMotion.current?.stop();
     const node = viewport.current;
     if (!node) return;
     tabletGestures.current?.stop();
@@ -2260,18 +2471,28 @@ export default function App() {
           >
             <Plus size={15} /> New lesson
           </button>
-          <div className="history">
-            {history.map((item, index) => (
-              <button
-                key={item.id}
-                className={item.id === session.id ? "current" : ""}
-                onClick={() => switchSession(item)}
-              >
-                <span>{index + 1}.</span>
-                <strong>{item.title}</strong>
-              </button>
-            ))}
-          </div>
+          <LessonLibrary
+            lessons={history}
+            current={session.id}
+            onOpen={switchSession}
+            onChange={setHistory}
+            onDelete={(id) => {
+              if (id === session.id)
+                switchSession(
+                  history.find((item) => item.id !== id) ?? {
+                    id: newRoom(),
+                    title: "New lesson",
+                    created: Date.now(),
+                  },
+                );
+            }}
+          />
+          {tablet && (
+            <button className="new-session" onClick={() => setSharing(true)}>
+              <Users size={15} />
+              Lesson connection
+            </button>
+          )}
           <div className="sidebar-bottom">
             <div className="sidebar-section-title">VIEW</div>
             <div className="segmented">
@@ -2381,9 +2602,11 @@ export default function App() {
                 event.target.value = "";
               }}
             />
-            <button className="share-button" onClick={() => setSharing(true)}>
-              <Users size={15} /> Share / Sync
-            </button>
+            {!(tablet && session.relay) && (
+              <button className="share-button" onClick={() => setSharing(true)}>
+                <Users size={15} /> Share / Sync
+              </button>
+            )}
             {peers.map((peer) => (
               <button
                 key={peer.id}
@@ -2566,7 +2789,6 @@ export default function App() {
                   aria-label="Selected element controls"
                 >
                   {active &&
-                    teacher &&
                     ["phrase", "conversation", "table"].includes(
                       active.kind,
                     ) && (
@@ -2579,6 +2801,7 @@ export default function App() {
                           doc.transact(() => {
                             patchCard(doc, active.id, {
                               mode,
+                              height: 0,
                               hideEnglishForLearner: false,
                             });
                             if (active.kind === "conversation")
@@ -2593,6 +2816,22 @@ export default function App() {
                         <option value="practice">Practice</option>
                       </select>
                     )}
+                  {active && (
+                    <div className="wide-selection-controls">
+                      <CardBorder
+                        compact
+                        card={active}
+                        onChange={patchSelection}
+                      />
+                      <button
+                        title="Fit card to text"
+                        aria-label="Fit card to text"
+                        onClick={() => patchSelection({ width: 0, height: 0 })}
+                      >
+                        <Scaling size={16} />
+                      </button>
+                    </div>
+                  )}
                   {active && ["phrase", "note"].includes(active.kind) && (
                     <button
                       title="Edit text in place"
@@ -3140,9 +3379,19 @@ export default function App() {
                           onChinese={(row, text) =>
                             changeRowChinese(card.id, row, text)
                           }
-                          onEnrich={(row) =>
-                            doc && void enrichRow(doc, card.id, row)
+                          onComplete={(row, text, language) =>
+                            void completeRow(card.id, row, text, language)
                           }
+                          onSpeech={(row, text, audio) =>
+                            void completeRow(
+                              card.id,
+                              row,
+                              text,
+                              "chinese",
+                              audio,
+                            )
+                          }
+                          notify={notify}
                           onSelect={(row) => selectCard(card.id, row.id)}
                           onAdd={() =>
                             doc &&
@@ -3216,11 +3465,14 @@ export default function App() {
                           onChinese={(row, text) =>
                             changeRowChinese(card.id, row, text)
                           }
-                          onEnrich={(row) =>
-                            doc && void enrichRow(doc, card.id, row)
+                          onComplete={(row, text, language) =>
+                            void completeRow(card.id, row, text, language)
                           }
                           onPatch={(row, patch) =>
                             doc && patchTableRow(doc, card.id, row.id, patch)
+                          }
+                          onAnswerComplete={(row, text, language) =>
+                            void completeAnswer(card.id, row, text, language)
                           }
                           onAnswer={(row, text) =>
                             changeAnswer(card.id, row, text)
@@ -3367,10 +3619,12 @@ export default function App() {
                                 onChange={(e) =>
                                   editPhraseInPlace(card, e.target.value)
                                 }
-                                onBlur={() => {
+                                onBlur={(event) => {
                                   setEditingCard(null);
-                                  if (doc && teacher)
-                                    void enrichPhrase(doc, card);
+                                  void completePhrase(
+                                    card,
+                                    event.currentTarget.value,
+                                  );
                                 }}
                                 onKeyDown={(e) => {
                                   if (
@@ -3513,7 +3767,7 @@ export default function App() {
                 >
                   <Minus size={15} />
                 </button>
-                <span>{Math.round(zoom * 100)}%</span>
+                <span ref={zoomLabel}>{Math.round(zoom * 100)}%</span>
                 <button
                   aria-label="Zoom in"
                   title="Zoom in"
@@ -3586,9 +3840,7 @@ export default function App() {
                     }
                   }}
                 />
-                {teacher && (
-                  <PushToTalk onPhrase={speechPhrase} notify={notify} />
-                )}
+                <PushToTalk onPhrase={speechPhrase} notify={notify} />
                 <button
                   className="primary"
                   type="submit"
@@ -3677,50 +3929,49 @@ export default function App() {
                           </select>
                         </label>
                       )}
-                      {teacher &&
-                        selectedCards.every(
-                          (card) => card.kind === "phrase",
-                        ) && (
-                          <>
-                            <label>
-                              Card mode for all
-                              <select
-                                aria-label="Group card mode"
-                                defaultValue=""
-                                onChange={(event) =>
-                                  patchSelection({
-                                    mode: event.target.value as CardMode,
-                                    hideEnglishForLearner: false,
-                                    height: 0,
-                                  })
-                                }
-                              >
-                                <option value="" disabled>
-                                  Choose mode…
-                                </option>
-                                <option value="full">Standard</option>
-                                <option value="peek">Compact</option>
-                                <option value="practice">Practice</option>
-                              </select>
-                            </label>
-                            <label>
-                              Text size for all
-                              <input
-                                aria-label="Group text size"
-                                type="range"
-                                min="0.5"
-                                max="3"
-                                step="0.1"
-                                defaultValue="1"
-                                onChange={(event) =>
-                                  patchSelection({
-                                    textScale: Number(event.target.value),
-                                  })
-                                }
-                              />
-                            </label>
-                          </>
-                        )}
+                      {selectedCards.every(
+                        (card) => card.kind === "phrase",
+                      ) && (
+                        <>
+                          <label>
+                            Card mode for all
+                            <select
+                              aria-label="Group card mode"
+                              defaultValue=""
+                              onChange={(event) =>
+                                patchSelection({
+                                  mode: event.target.value as CardMode,
+                                  hideEnglishForLearner: false,
+                                  height: 0,
+                                })
+                              }
+                            >
+                              <option value="" disabled>
+                                Choose mode…
+                              </option>
+                              <option value="full">Standard</option>
+                              <option value="peek">Compact</option>
+                              <option value="practice">Practice</option>
+                            </select>
+                          </label>
+                          <label>
+                            Text size for all
+                            <input
+                              aria-label="Group text size"
+                              type="range"
+                              min="0.5"
+                              max="3"
+                              step="0.1"
+                              defaultValue="1"
+                              onChange={(event) =>
+                                patchSelection({
+                                  textScale: Number(event.target.value),
+                                })
+                              }
+                            />
+                          </label>
+                        </>
+                      )}
                       {selectedCards.length === 2 && (
                         <button
                           className="soft wide"
@@ -4009,6 +4260,22 @@ export default function App() {
                               English translation
                               <textarea
                                 value={activeRow.definition}
+                                onFocus={(event) => {
+                                  event.currentTarget.dataset.original =
+                                    event.currentTarget.value;
+                                }}
+                                onBlur={(event) => {
+                                  if (
+                                    event.currentTarget.value !==
+                                    event.currentTarget.dataset.original
+                                  )
+                                    void completeRow(
+                                      active.id,
+                                      activeRow,
+                                      event.currentTarget.value,
+                                      "english",
+                                    );
+                                }}
                                 onChange={(event) =>
                                   doc &&
                                   patchTableRow(doc, active.id, activeRow.id, {
@@ -4116,10 +4383,12 @@ export default function App() {
                           onChange={(event) =>
                             changeChinese(event.target.value)
                           }
-                          onBlur={() => {
-                            if (doc && active.chinese)
-                              void enrichPhrase(doc, active);
-                          }}
+                          onBlur={(event) =>
+                            void completePhrase(
+                              active,
+                              event.currentTarget.value,
+                            )
+                          }
                         />
                       </label>
                       {!hidden && (
@@ -4142,6 +4411,20 @@ export default function App() {
                         Jyutping
                         <input
                           value={active.jyutping}
+                          onBlur={(event) => {
+                            if (
+                              event.currentTarget.value !==
+                              event.currentTarget.dataset.original
+                            )
+                              void completePhrase(
+                                active,
+                                event.currentTarget.value,
+                              );
+                          }}
+                          onFocus={(event) => {
+                            event.currentTarget.dataset.original =
+                              event.currentTarget.value;
+                          }}
                           maxLength={4000}
                           onChange={(event) =>
                             doc &&
@@ -4168,9 +4451,15 @@ export default function App() {
                       </label>
                     </>
                   )}
-                  {active.kind === "phrase" && teacher && (
+                  {active.kind === "phrase" && (
                     <div className="appearance">
                       <h3>Card appearance</h3>
+                      <CardBorder
+                        card={active}
+                        onChange={(patch) =>
+                          doc && patchCard(doc, active.id, patch)
+                        }
+                      />
                       <div className="fill-presets" aria-label="Card fill">
                         {[
                           ["", "Transparent"],
@@ -4195,7 +4484,7 @@ export default function App() {
                         ))}
                       </div>
                       <p className="small-copy">
-                        Natasha can choose what Leif sees.
+                        Choose how this phrase appears in the shared lesson.
                       </p>
                       <div className="option-label">Mode</div>
                       <div className="choice-grid">
@@ -4343,15 +4632,12 @@ export default function App() {
                             parent?.id ?? card.id,
                             parent ? card.id : null,
                           );
-                          viewport.current?.scrollTo({
-                            left:
-                              Math.max(0, card.x * zoom - 40) +
-                              canvasMargin.current.x,
-                            top:
-                              Math.max(0, card.y * zoom - 40) +
-                              canvasMargin.current.y,
-                            behavior: "smooth",
-                          });
+                          const target = parent ?? card;
+                          const bounds = cardBox(target);
+                          centerView(
+                            bounds.x + bounds.width / 2,
+                            bounds.y + bounds.height / 2,
+                          );
                         }}
                       >
                         <Star size={13} fill="currentColor" />

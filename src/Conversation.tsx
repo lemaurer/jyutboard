@@ -1,4 +1,5 @@
-import type { Card, TableRow } from "./model";
+import { PushToTalk } from "./PushToTalk";
+import type { SourceLanguage, Card, TableRow } from "./model";
 import { PersonAvatar, PERSONAS, AVATARS } from "./PersonAvatar";
 import { Plus, Star, X, MoreHorizontal, Volume2 } from "lucide-react";
 export function Conversation({
@@ -7,7 +8,9 @@ export function Conversation({
   hidden,
   onChange,
   onChinese,
-  onEnrich,
+  onComplete,
+  onSpeech,
+  notify,
   onAdd,
   onDelete,
   onSelect,
@@ -17,7 +20,9 @@ export function Conversation({
   hidden: boolean;
   onChange: (row: TableRow, patch: Partial<TableRow>) => void;
   onChinese: (row: TableRow, text: string) => void;
-  onEnrich: (row: TableRow) => void;
+  onComplete: (row: TableRow, text: string, language?: SourceLanguage) => void;
+  onSpeech: (row: TableRow, text: string, audio: string) => void;
+  notify: (text: string) => void;
   onAdd: () => void;
   onDelete: (row: TableRow) => void;
   onSelect: (row: TableRow) => void;
@@ -109,7 +114,7 @@ export function Conversation({
                     ? onChinese(row, e.target.value)
                     : onChange(row, { jyutping: e.target.value })
                 }
-                onBlur={() => teacher && onEnrich(row)}
+                onBlur={(event) => onComplete(row, event.currentTarget.value)}
               />
               {!teacher && mode === "full" && row.chinese && (
                 <p className="card-secondary">{row.chinese}</p>
@@ -120,6 +125,17 @@ export function Conversation({
                   aria-label="Dialogue translation"
                   placeholder="Meaning…"
                   value={row.definition}
+                  onBlur={(event) => {
+                    if (
+                      event.currentTarget.value !==
+                      event.currentTarget.dataset.original
+                    )
+                      onComplete(row, event.currentTarget.value, "english");
+                  }}
+                  onFocus={(event) => {
+                    event.currentTarget.dataset.original =
+                      event.currentTarget.value;
+                  }}
                   onChange={(e) =>
                     onChange(row, {
                       definition: e.target.value,
@@ -128,6 +144,12 @@ export function Conversation({
                   }
                 />
               )}
+              <div className="dialogue-mic-line">
+                <PushToTalk
+                  onPhrase={(text, audio) => onSpeech(row, text, audio)}
+                  notify={notify}
+                />
+              </div>
               <button
                 className={`bubble-star ${row.starred ? "is-starred" : ""}`}
                 aria-label={row.starred ? "Unsave bubble" : "Save bubble"}

@@ -12,10 +12,12 @@ export function canvasBoundary(
   viewportWidth: number,
   viewportHeight: number,
   zoom: number,
+  desktop = false,
 ): Boundary {
   const margin = (size: number) =>
     Math.ceil(
-      Math.min(size * 0.3, Math.max(size * 0.12, 180 * Math.sqrt(zoom))),
+      Math.min(size * 0.3, Math.max(size * 0.12, 180 * Math.sqrt(zoom))) *
+        (desktop ? 0.55 : 1),
     );
   const inset = 40;
   const x = width * zoom - viewportWidth,
@@ -65,11 +67,11 @@ export function springAxis(
   maximum: number,
   elapsed: number,
   minimum = 0,
+  omega = 0.014,
 ) {
   const target = Math.max(minimum, Math.min(maximum, value)),
     displacement = value - target;
-  const omega = 0.014,
-    c = velocity + omega * displacement,
+  const c = velocity + omega * displacement,
     decay = Math.exp(-omega * elapsed);
   const next = (displacement + c * elapsed) * decay;
   const speed = (velocity - omega * c * elapsed) * decay;

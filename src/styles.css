@@ -2002,7 +2002,7 @@ small {
 }
 .card-star {
   position: absolute;
-  right: -24px;
+  right: 6px;
   top: 5px;
   width: 21px;
   height: 21px;
@@ -2536,8 +2536,8 @@ summary > svg,
 }
 .bubble-star {
   position: absolute;
-  right: -23px;
-  top: 3px;
+  right: 6px;
+  top: 5px;
   padding: 2px;
   border: 0;
   background: transparent;
@@ -3251,4 +3251,191 @@ summary > svg,
   border-radius: 8px;
   padding: 6px 9px;
   font-size: 12px;
+}
+
+/* Reserve a quiet action column inside the border in every phrase mode. */
+.phrase-card:not(.note-card) {
+  padding-right: 36px;
+}
+.dialogue-bubble {
+  padding-right: 36px;
+}
+.turn-right .dialogue-bubble {
+  padding-left: 36px;
+  padding-right: 14px;
+}
+.turn-right .bubble-star {
+  left: 6px;
+  right: auto;
+}
+/* Intrinsic phrase size follows visible content, while manual resizing stays explicit. */
+.phrase-card:not(.note-card) {
+  width: max-content;
+  min-width: 90px;
+  max-width: 520px;
+}
+.phrase-card:not(.note-card) h2 {
+  max-width: 465px;
+}
+.phrase-card .in-place-phrase {
+  min-width: 180px;
+}
+.border-controls {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin: 8px 0;
+  flex-wrap: wrap;
+}
+.border-controls label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 11px;
+}
+.border-controls select {
+  width: auto;
+  max-width: 90px;
+  padding: 5px;
+}
+.border-controls input[type="color"] {
+  width: 30px;
+  height: 29px;
+  padding: 2px;
+}
+.wide-selection-controls {
+  display: none;
+}
+.border-popover {
+  position: relative;
+  font-size: 12px;
+}
+.border-popover summary {
+  padding: 7px;
+  cursor: pointer;
+}
+.border-popover .border-controls {
+  position: absolute;
+  top: 30px;
+  left: 0;
+  width: 235px;
+  background: #fff;
+  padding: 12px;
+  border: 1px solid #e0e5ee;
+  border-radius: 12px;
+  box-shadow: 0 8px 28px #23314b18;
+  z-index: 30;
+}
+.toolbar {
+  container-type: inline-size;
+  container-name: canvas-tools;
+}
+@container canvas-tools (min-width:1150px) {
+  .wide-selection-controls {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+  }
+}
+.lesson-entry {
+  display: flex;
+  align-items: center;
+  position: relative;
+  border-radius: 8px;
+}
+.history .lesson-entry.current {
+  background: #eee9fa;
+}
+.history .lesson-open {
+  flex: 1;
+  min-width: 0;
+  background: transparent;
+}
+.lesson-menu {
+  margin-right: 6px;
+}
+.lesson-menu summary {
+  padding: 3px 6px;
+  cursor: pointer;
+  list-style: none;
+}
+.lesson-menu > div {
+  position: absolute;
+  left: 8px;
+  top: 30px;
+  width: 180px;
+  padding: 10px;
+  background: #fff;
+  border: 1px solid #dfe4ee;
+  border-radius: 10px;
+  z-index: 40;
+  box-shadow: 0 6px 20px #23314b1a;
+}
+.lesson-menu label {
+  font-size: 11px;
+}
+.lesson-menu select {
+  width: 100%;
+  margin: 5px 0;
+}
+.lesson-menu > div button {
+  display: flex;
+  gap: 5px;
+  padding: 7px 0;
+  font-size: 11px;
+}
+.new-folder,
+.restore-lesson {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 4px 0 9px;
+  font-size: 11px;
+  color: #69748b;
+}
+.folder-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 11px;
+  color: #65718b;
+  margin: 14px 4px 4px;
+}
+.lesson-library form {
+  display: flex;
+  gap: 3px;
+}
+.lesson-library form input {
+  width: 115px;
+  min-width: 0;
+}
+.dialogue-mic-line {
+  display: flex;
+  margin-top: 3px;
+}
+.dialogue-mic-line .push-to-talk button {
+  padding: 3px 5px;
+  font-size: 10px;
+  background: transparent;
+  color: #7a879a;
+}
+.dialogue-mic-line .push-to-talk svg {
+  width: 13px;
+  height: 13px;
+}
+.editable-table-language {
+  position: relative;
+  display: block;
+}
+.editable-table-language > input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+}
+.editable-table-language:focus-within > input {
+  position: relative;
+  opacity: 1;
+}
+.editable-table-language:focus-within > span {
+  display: none;
 }

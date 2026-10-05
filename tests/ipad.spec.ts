@@ -111,7 +111,10 @@ test("iPad first join has no hosting or credentials; invitation remembers a shar
     await expect(page.getByTestId("phrase-card").locator("h2")).toContainText(
       "ngo5",
     );
-    await page.getByRole("button", { name: "Share / Sync" }).click();
+    await page.getByRole("button", { name: "Show pages", exact: true }).click();
+    await page
+      .getByRole("button", { name: "Lesson connection", exact: true })
+      .click();
     await expect(
       page.getByRole("button", { name: "Join Natasha", exact: true }),
     ).toBeVisible();
@@ -149,13 +152,23 @@ test("Pencil draws pressure-sensitive ink, a resting finger makes no marks and f
     expect(drawing?.length).toBeGreaterThan(50);
     const before = await page
       .locator(".canvas-viewport")
-      .evaluate((el) => el.scrollLeft);
+      .evaluate(
+        (el) =>
+          el.getBoundingClientRect().left -
+          el.querySelector(".canvas")!.getBoundingClientRect().left,
+      );
     await pointer(page, "pointerdown", 3, x, y);
     await pointer(page, "pointermove", 3, x + 60, y + 30);
     await pointer(page, "pointerup", 3, x + 60, y + 30);
     await expect
       .poll(() =>
-        page.locator(".canvas-viewport").evaluate((el) => el.scrollLeft),
+        page
+          .locator(".canvas-viewport")
+          .evaluate(
+            (el) =>
+              el.getBoundingClientRect().left -
+              el.querySelector(".canvas")!.getBoundingClientRect().left,
+          ),
       )
       .toBeLessThan(before);
     await expect(page.getByTestId("smooth-ink")).toHaveCount(1);
@@ -417,7 +430,10 @@ test("Safari keyboard resize and offset keep the composer and modal in the visib
     expect(composer.y + composer.height).toBeLessThanOrEqual(494);
     await expect(page.locator(".composer-controls")).not.toBeVisible();
     await expect(page.locator(".canvas-viewport")).toBeVisible();
-    await page.getByRole("button", { name: "Share / Sync" }).click();
+    await page.getByRole("button", { name: "Show pages", exact: true }).click();
+    await page
+      .getByRole("button", { name: "Lesson connection", exact: true })
+      .click();
     await page.getByLabel("Lesson invitation").focus();
     const modal = (await page
       .getByRole("dialog", { name: "Share lesson" })
@@ -558,15 +574,35 @@ test("iPad pan glides after release and a new touch stops the glide", async () =
     await page.waitForTimeout(20);
     await pointer(page, "pointermove", 1, x - 65, y);
     await pointer(page, "pointerup", 1, x - 65, y);
-    const released = await area.evaluate((el) => el.scrollLeft);
+    const released = await area.evaluate(
+      (el) =>
+        el.getBoundingClientRect().left -
+        el.querySelector(".canvas")!.getBoundingClientRect().left,
+    );
     await expect
-      .poll(() => area.evaluate((el) => el.scrollLeft))
+      .poll(() =>
+        area.evaluate(
+          (el) =>
+            el.getBoundingClientRect().left -
+            el.querySelector(".canvas")!.getBoundingClientRect().left,
+        ),
+      )
       .toBeGreaterThan(released + 12);
     await pointer(page, "pointerdown", 1, x - 65, y);
     await page.waitForTimeout(32);
-    const stopped = await area.evaluate((el) => el.scrollLeft);
+    const stopped = await area.evaluate(
+      (el) =>
+        el.getBoundingClientRect().left -
+        el.querySelector(".canvas")!.getBoundingClientRect().left,
+    );
     await page.waitForTimeout(120);
-    expect(await area.evaluate((el) => el.scrollLeft)).toBe(stopped);
+    expect(
+      await area.evaluate(
+        (el) =>
+          el.getBoundingClientRect().left -
+          el.querySelector(".canvas")!.getBoundingClientRect().left,
+      ),
+    ).toBe(stopped);
     await pointer(page, "pointerup", 1, x - 65, y);
   } finally {
     await context.close();
@@ -605,21 +641,10 @@ test("iPad elastic edges show the surrounding desk, resist long pulls and settle
     expect(farther).toBeLessThan(box.width * 0.31);
     await pointer(page, "pointerup", 1, x + 700, y);
     await expect
-      .poll(async () =>
-        Math.abs(
-          await area.evaluate(
-            (el) =>
-              el.scrollLeft -
-              el.querySelector<HTMLElement>(".canvas")!.offsetLeft,
-          ),
-        ),
-      )
-      .toBeLessThan(41);
-    await expect
       .poll(
         async () => (await page.locator(".canvas").boundingBox())!.x - box.x,
       )
-      .toBeGreaterThan(39);
+      .toBeCloseTo(40, 0);
     await expect(area).toHaveCSS("background-color", "rgb(233, 237, 243)");
   } finally {
     await context.close();
@@ -652,7 +677,7 @@ test("iPad language choice sits beside the field and produces complete role-spec
     const cards = page.getByTestId("phrase-card");
     await expect(cards).toHaveCount(2);
     await expect(cards.first().locator("h2")).toHaveText("你好");
-    await expect(cards.first().locator(".card-english")).toHaveText("Hello.");
+    await expect(cards.first().locator(".card-english")).toHaveText("Hello");
     await page.getByLabel("Your lesson view").selectOption("learner");
     await expect(cards.first().locator("h2")).toHaveText("nei5 hou2");
     await expect(cards.first().locator(".card-secondary")).toHaveText("你好");
@@ -711,14 +736,19 @@ test("WebKit shows every canvas edge and moves away immediately after a long ove
               : side === "top"
                 ? rect.top - bounds.top
                 : bounds.bottom - rect.bottom;
-        const before = horizontal ? node.scrollLeft : node.scrollTop;
+        const before = horizontal
+          ? canvas.getBoundingClientRect().left
+          : canvas.getBoundingClientRect().top;
         wheel((positive ? -1 : 1) * 30);
         await frame();
         await frame();
         return {
           visibleMargin,
           travel:
-            ((horizontal ? node.scrollLeft : node.scrollTop) - before) *
+            (before -
+              (horizontal
+                ? canvas.getBoundingClientRect().left
+                : canvas.getBoundingClientRect().top)) *
             (positive ? -1 : 1),
         };
       }, side);
@@ -726,6 +756,71 @@ test("WebKit shows every canvas edge and moves away immediately after a long ove
       expect(result.travel).toBeGreaterThan(28);
       await page.waitForTimeout(700);
     }
+  } finally {
+    await context.close();
+  }
+});
+
+test("iPad navigation paints without resizing the scroll surface and settles without shifting artwork", async () => {
+  const { page, context } = await tablet();
+  try {
+    await page.goto(
+      `/#room=${"4".repeat(48)}&relay=${encodeURIComponent(`ws://127.0.0.1:${relay.port}`)}`,
+    );
+    await page.getByRole("button", { name: "Draw", exact: true }).click();
+    const result = await page
+      .locator(".canvas-viewport")
+      .evaluate(async (node) => {
+        const canvas = node.querySelector<HTMLElement>(".canvas")!,
+          space = canvas.parentElement!;
+        let geometryWrites = 0;
+        const observer = new MutationObserver(
+          (records) => (geometryWrites += records.length),
+        );
+        observer.observe(space, {
+          attributes: true,
+          attributeFilter: ["style"],
+        });
+        const r = node.getBoundingClientRect(),
+          x = r.left + 400,
+          y = r.top + 220;
+        const event = (type: string, id: number, x: number, y: number) =>
+          canvas.dispatchEvent(
+            new PointerEvent(type, {
+              bubbles: true,
+              cancelable: true,
+              pointerType: "touch",
+              pointerId: id,
+              clientX: x,
+              clientY: y,
+              buttons: type === "pointerup" ? 0 : 1,
+            }),
+          );
+        event("pointerdown", 1, x, y);
+        event("pointerdown", 2, x + 150, y);
+        for (let i = 0; i < 30; i++) {
+          event("pointermove", 2, x + 150 + i * 4.35, y - i * 1.7);
+          await new Promise((resolve) => requestAnimationFrame(resolve));
+        }
+        const writesDuringNavigation = geometryWrites;
+        event("pointerup", 2, x + 276.15, y - 49.3);
+        event("pointerup", 1, x, y);
+        const before = canvas.getBoundingClientRect();
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        const after = canvas.getBoundingClientRect();
+        observer.disconnect();
+        return {
+          writesDuringNavigation,
+          writesAfter: geometryWrites,
+          shift: Math.max(
+            Math.abs(before.left - after.left),
+            Math.abs(before.top - after.top),
+          ),
+        };
+      });
+    expect(result.writesDuringNavigation).toBe(0);
+    expect(result.writesAfter).toBeLessThanOrEqual(2);
+    expect(result.shift).toBeLessThan(0.02);
   } finally {
     await context.close();
   }

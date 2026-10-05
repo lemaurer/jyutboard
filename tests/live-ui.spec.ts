@@ -89,7 +89,7 @@ test("shared lesson keeps separate Chinese/Jyutping views, word edits and practi
   await expect(leif.getByLabel("English meaning")).toHaveCount(0);
   await expect(
     leif.getByRole("heading", { name: "Card appearance" }),
-  ).toHaveCount(0);
+  ).toBeVisible();
   await natasha.locator(".word-piece summary").first().click();
   await natasha.getByLabel("Piece 1 Chinese").fill("我想");
   await natasha.getByRole("button", { name: "Add piece" }).click();
@@ -187,7 +187,7 @@ test("touchpad zoom and card deletion work; backup restores as a new lesson", as
   await page.getByRole("button", { name: "Import lesson backup" }).click();
   await page.locator('input[type=file][accept=".json"]').setInputFiles(path!);
   await expect(page.getByTestId("phrase-card")).toHaveCount(1);
-  await expect(page.locator(".history button")).toHaveCount(2);
+  await expect(page.locator(".history .lesson-open")).toHaveCount(2);
   await page.getByTestId("phrase-card").click();
   await page.keyboard.press("Delete");
   await expect(page.getByTestId("phrase-card")).toHaveCount(0);
@@ -360,14 +360,26 @@ test("partners see animal cursors, find each other and follow presenter zoom and
   const expected = await teacher
     .locator(".canvas-viewport")
     .evaluate((node) => [
-      (node.scrollLeft + node.clientWidth / 2) / 0.9,
-      (node.scrollTop + node.clientHeight / 2) / 0.9,
+      (node.getBoundingClientRect().left -
+        node.querySelector(".canvas")!.getBoundingClientRect().left +
+        node.clientWidth / 2) /
+        0.9,
+      (node.getBoundingClientRect().top -
+        node.querySelector(".canvas")!.getBoundingClientRect().top +
+        node.clientHeight / 2) /
+        0.9,
     ]);
   await expect
     .poll(() =>
       learner
         .locator(".canvas-viewport")
-        .evaluate((node) => (node.scrollLeft + node.clientWidth / 2) / 0.9),
+        .evaluate(
+          (node) =>
+            (node.getBoundingClientRect().left -
+              node.querySelector(".canvas")!.getBoundingClientRect().left +
+              node.clientWidth / 2) /
+            0.9,
+        ),
     )
     .toBeCloseTo(expected[0], 0);
   await learner
@@ -429,6 +441,23 @@ test("attached connectors follow resized cards; marquee selection edits, moves a
     .locator("polyline")
     .first()
     .getAttribute("points");
+  const movingBox = (await page
+    .getByTestId("phrase-card")
+    .nth(1)
+    .boundingBox())!;
+  await page.mouse.move(movingBox.x + 20, movingBox.y + 15);
+  await page.mouse.down();
+  await page.mouse.move(movingBox.x + 50, movingBox.y + 40, { steps: 4 });
+  await expect
+    .poll(() =>
+      page
+        .getByTestId("connector")
+        .locator("polyline")
+        .first()
+        .getAttribute("points"),
+    )
+    .not.toBe(before);
+  await page.mouse.up();
   await moveCard(1, 520, 240);
   await expect
     .poll(() =>
@@ -651,7 +680,9 @@ test("minimal question/answer tables derive both readings and support alternate 
   await page.getByLabel("Table appearance").selectOption("ruled");
   await expect(table).toHaveClass(/table-style-ruled/);
   await page.getByRole("button", { name: "Leif", exact: true }).click();
-  await expect(table).toContainText("jam2 seoi2");
+  await expect(table.getByLabel("Paired Jyutping phrase")).toHaveValue(
+    "jam2 seoi2",
+  );
   await expect(table.getByLabel("Paired English translation")).toHaveValue(
     "Drink water",
   );
@@ -1049,18 +1080,24 @@ test("touchpad saturation reverses immediately at all four canvas edges", async 
           for (let i = 0; i < 80; i++) wheel(direction * 200);
           await frame();
           await frame();
-          const before = axis === "x" ? node.scrollLeft : node.scrollTop;
+          const before =
+            axis === "x"
+              ? canvas.getBoundingClientRect().left
+              : canvas.getBoundingClientRect().top;
           wheel(-direction * 30);
           await frame();
           await frame();
           return {
             before,
-            after: axis === "x" ? node.scrollLeft : node.scrollTop,
+            after:
+              axis === "x"
+                ? canvas.getBoundingClientRect().left
+                : canvas.getBoundingClientRect().top,
           };
         },
         { axis, direction },
       );
-      expect((result.after - result.before) * -direction).toBeGreaterThan(28);
+      expect((result.before - result.after) * -direction).toBeGreaterThan(28);
       await page.waitForTimeout(700);
     }
   }
@@ -1120,7 +1157,9 @@ test("touchpad pinch paints scale and position together and holds its anchor thr
         scaleError = Math.max(
           scaleError,
           Math.abs(
-            card.getBoundingClientRect().width / card.offsetWidth - scale,
+            card.getBoundingClientRect().width /
+              parseFloat(getComputedStyle(card).width) -
+              scale,
           ),
         );
       }
@@ -1133,5 +1172,234 @@ test("touchpad pinch paints scale and position together and holds its anchor thr
     });
   expect(result.error).toBeLessThan(2);
   expect(result.scaleError).toBeLessThan(0.001);
-  expect(result.finalScale).toBeCloseTo(1, 3);
+  expect(result.finalScale).toBeGreaterThan(0.9);
+  expect(result.finalScale).toBeLessThan(1);
+});
+
+test("favourite stars fit inside each phrase mode and right-hand dialogue stars sit on the left", async ({
+  browser,
+}) => {
+  const page = await blankPage(browser, false);
+  await page.getByLabel("Cantonese phrase").fill("我想飲水");
+  await page.getByRole("button", { name: "Add phrase", exact: true }).click();
+  const card = page.getByTestId("phrase-card");
+  for (const mode of ["full", "peek", "practice"]) {
+    await card.click();
+    await page.getByLabel("Selected card mode").selectOption(mode);
+    const box = (await card.boundingBox())!,
+      star = (await card.locator(".card-star").boundingBox())!,
+      text = (await card.locator("h2").boundingBox())!;
+    expect(star.x).toBeGreaterThan(box.x);
+    expect(star.x + star.width).toBeLessThan(box.x + box.width);
+    expect(text.x + text.width).toBeLessThan(star.x);
+  }
+  await card.getByRole("button", { name: "Save phrase", exact: true }).click();
+  await expect(
+    card.getByRole("button", { name: "Unsave phrase", exact: true }),
+  ).toBeVisible();
+  await page
+    .getByRole("button", { name: "Add conversation", exact: true })
+    .click();
+  const conversation = page.getByTestId("conversation-card");
+  for (const side of ["left", "right"]) {
+    const turn = conversation.locator(`.turn-${side}`).first(),
+      bubble = turn.locator(".dialogue-bubble"),
+      star = turn.locator(".bubble-star"),
+      text = turn.locator("textarea");
+    const box = (await bubble.boundingBox())!,
+      mark = (await star.boundingBox())!,
+      content = (await text.boundingBox())!;
+    expect(mark.x).toBeGreaterThan(box.x);
+    expect(mark.x + mark.width).toBeLessThan(box.x + box.width);
+    if (side === "right") expect(mark.x + mark.width).toBeLessThan(content.x);
+    else expect(content.x + content.width).toBeLessThan(mark.x);
+    await turn.hover();
+    await star.click();
+    await expect(star).toHaveAccessibleName("Unsave bubble");
+  }
+});
+
+test("content sized cards, border editing and canonical in-place English work in both views", async ({
+  browser,
+}) => {
+  const page = await blankPage(browser);
+  await page.getByRole("button", { name: "Natasha", exact: true }).click();
+  await page.getByLabel("Cantonese phrase").fill("drink water");
+  await page.getByRole("button", { name: "Add phrase", exact: true }).click();
+  const card = page.getByTestId("phrase-card");
+  await expect(card.locator("h2")).toHaveText("飲水");
+  expect((await card.boundingBox())!.width).toBeLessThan(250);
+  const appearance = page.locator(".appearance");
+  await appearance.getByLabel("Card border width").selectOption("2");
+  await appearance.getByLabel("Card border style").selectOption("dashed");
+  await expect(card).toHaveCSS("border-width", "2px");
+  await expect(card).toHaveCSS("border-style", "dashed");
+  const original = (await card.boundingBox())!;
+  await page.getByLabel("Selected card mode").selectOption("practice");
+  expect((await card.boundingBox())!.height).toBeLessThan(original.height);
+  for (const name of ["Leif", "Natasha"]) {
+    await page.getByRole("button", { name, exact: true }).click();
+    await card.locator("h2").dblclick();
+    await card.getByLabel("Edit phrase in place").fill("hello");
+    await card.getByLabel("Edit phrase in place").press("Enter");
+    await expect(card.locator("h2")).toHaveText(
+      name === "Leif" ? "nei5 hou2" : "你好",
+    );
+  }
+});
+
+test("lesson folders persist and deletion can be undone without losing lesson contents", async ({
+  browser,
+}) => {
+  const page = await blankPage(browser, false);
+  await page.getByLabel("Cantonese phrase").fill("飲水");
+  await page.getByRole("button", { name: "Add phrase", exact: true }).click();
+  const title = await page.locator(".lesson-open strong").first().innerText();
+  await page.getByRole("button", { name: "New folder", exact: true }).click();
+  await page.getByLabel("Folder name").fill("Food lessons");
+  await page.locator(".lesson-library form button").click();
+  await page.getByLabel(`Options for ${title}`).click();
+  await page
+    .getByLabel(`Folder for ${title}`)
+    .selectOption({ label: "Food lessons" });
+  await page.reload();
+  await expect(page.locator(".folder-heading")).toContainText("Food lessons");
+  await expect(page.getByTestId("phrase-card")).toHaveCount(1);
+  await page.getByLabel(`Options for ${title}`).click();
+  await page
+    .getByRole("button", { name: "Delete from this device", exact: true })
+    .click();
+  await expect(page.getByTestId("phrase-card")).toHaveCount(0);
+  await page
+    .getByRole("button", { name: `Restore ${title}`, exact: true })
+    .click();
+  await page.locator(".lesson-open").filter({ hasText: title }).click();
+  await expect(page.getByTestId("phrase-card")).toHaveCount(1);
+});
+
+test("dialogue English fills Cantonese in both views and dialogue recording remains a normal favourite", async ({
+  browser,
+}) => {
+  const page = await blankPage(browser, false);
+  await page
+    .getByRole("button", { name: "Add conversation", exact: true })
+    .click();
+  const turns = page.getByTestId("conversation-card").locator(".dialogue-turn");
+  for (const [index, name] of ["Leif", "Natasha"].entries()) {
+    await page.getByRole("button", { name, exact: true }).click();
+    const turn = turns.nth(index);
+    await turn.getByLabel("Dialogue translation").fill("drink water");
+    await turn.getByLabel("Dialogue translation").press("Tab");
+    await expect(turn.locator("textarea")).toHaveValue(
+      name === "Leif" ? "jam2 seoi2" : "飲水",
+    );
+  }
+  await page.evaluate(() => {
+    const w = window as any;
+    w.desktop.microphone = async () => true;
+    w.desktop.saveBackup = async (text: string) => {
+      w.__dialogueBackup = JSON.parse(text);
+      return true;
+    };
+    w.desktop.transcribe = async (audio: string) => {
+      w.__dialogueClip = audio;
+      return { transcript: "你好" };
+    };
+    navigator.mediaDevices.getUserMedia = async () =>
+      ({ getTracks: () => [{ stop() {} }] }) as any;
+    w.MediaRecorder = class {
+      state = "inactive";
+      mimeType = "audio/webm";
+      ondataavailable: any;
+      onstop: any;
+      static isTypeSupported() {
+        return true;
+      }
+      start() {
+        this.state = "recording";
+      }
+      stop() {
+        this.state = "inactive";
+        this.ondataavailable?.({
+          data: new Blob([new Uint8Array(256).fill(27)], {
+            type: "audio/webm",
+          }),
+        });
+        this.onstop?.();
+      }
+    };
+  });
+  const turn = turns.first();
+  await turn.getByRole("button", { name: "Hold to speak Cantonese" }).click();
+  await expect(
+    turn.getByRole("button", { name: "Hold to speak Cantonese" }),
+  ).toContainText("Recording");
+  await turn.getByRole("button", { name: "Hold to speak Cantonese" }).click();
+  await expect(turn.getByLabel("Dialogue Cantonese")).toHaveValue("你好");
+  await expect(turn.getByLabel("Play bubble recording")).toBeVisible();
+  await turn.getByRole("button", { name: "Save bubble", exact: true }).click();
+  await page.getByRole("button", { name: "Show details", exact: true }).click();
+  await expect(page.locator(".tray-item")).toHaveCount(1);
+  await page.getByRole("button", { name: "Export lesson backup" }).click();
+  const recording = await page.evaluate(() => {
+    const w = window as any;
+    return {
+      clip: w.__dialogueClip,
+      saved: w.__dialogueBackup.cards[0].rows[0].audio,
+    };
+  });
+  expect(recording.saved).toBe(recording.clip);
+  expect(recording.saved).toContain("data:audio/");
+});
+
+test("unknown English uses the same analysis service in both views and late results preserve newer edits", async ({
+  browser,
+}) => {
+  const page = await blankPage(browser, false);
+  await page.evaluate(() => {
+    const w = window as any;
+    w.__requests = [];
+    w.desktop.analyze = async (text: string, language: string) => {
+      w.__requests.push({ text, language });
+      if (text === "an older custom phrase")
+        await new Promise((resolve) => {
+          w.__finishAnalysis = resolve;
+        });
+      return {
+        chinese: "請畀個杯我",
+        jyutping: "cing2 bei2 go3 bui1 ngo5",
+        definition: text,
+        words: [],
+      };
+    };
+  });
+  for (const name of ["Natasha", "Leif"]) {
+    await page.getByRole("button", { name, exact: true }).click();
+    await page
+      .getByLabel("Cantonese phrase")
+      .fill("please pass me the green cup");
+    await page.getByRole("button", { name: "Add phrase", exact: true }).click();
+    await expect(page.getByTestId("phrase-card")).toHaveCount(
+      name === "Natasha" ? 1 : 2,
+    );
+  }
+  expect(
+    await page.evaluate(() =>
+      (window as any).__requests.map((request: any) => request.language),
+    ),
+  ).toEqual(["english", "english"]);
+  const card = page.getByTestId("phrase-card").last();
+  await card.locator("h2").dblclick();
+  await card.getByLabel("Edit phrase in place").fill("an older custom phrase");
+  await card.getByLabel("Edit phrase in place").press("Enter");
+  await expect
+    .poll(() => page.evaluate(() => Boolean((window as any).__finishAnalysis)))
+    .toBe(true);
+  await card.locator("h2").dblclick();
+  await card.getByLabel("Edit phrase in place").fill("hello");
+  await card.getByLabel("Edit phrase in place").press("Enter");
+  await expect(card.locator("h2")).toHaveText("nei5 hou2");
+  await page.evaluate(() => (window as any).__finishAnalysis());
+  await page.waitForTimeout(200);
+  await expect(card.locator("h2")).toHaveText("nei5 hou2");
 });

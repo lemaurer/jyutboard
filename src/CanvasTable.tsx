@@ -1,5 +1,5 @@
 import { Plus, X } from "lucide-react";
-import type { Card, TableRow } from "./model";
+import type { SourceLanguage, Card, TableRow } from "./model";
 import {
   VocabularyPhrase,
   type HighlightMode,
@@ -12,9 +12,10 @@ export function CanvasTable({
   selectedRow,
   onSelect,
   onChinese,
-  onEnrich,
+  onComplete,
   onPatch,
   onAnswer,
+  onAnswerComplete,
   onAdd,
   onDelete,
   vocabulary,
@@ -26,9 +27,14 @@ export function CanvasTable({
   selectedRow: string | null;
   onSelect: (row: TableRow) => void;
   onChinese: (row: TableRow, text: string) => void;
-  onEnrich: (row: TableRow) => void;
+  onComplete: (row: TableRow, text: string, language?: SourceLanguage) => void;
   onPatch: (row: TableRow, patch: Partial<TableRow>) => void;
   onAnswer: (row: TableRow, text: string) => void;
+  onAnswerComplete: (
+    row: TableRow,
+    text: string,
+    language?: SourceLanguage,
+  ) => void;
   onAdd: () => void;
   onDelete: (row: TableRow) => void;
   vocabulary?: VocabularySnapshot;
@@ -80,10 +86,22 @@ export function CanvasTable({
                     placeholder={pattern ? "我想…" : "寫句中文…"}
                     value={row.chinese}
                     onChange={(e) => onChinese(row, e.target.value)}
-                    onBlur={() => onEnrich(row)}
+                    onBlur={(event) =>
+                      onComplete(row, event.currentTarget.value)
+                    }
                   />
                 ) : (
-                  <span className="table-jyutping">
+                  <span className="table-jyutping editable-table-language">
+                    <input
+                      aria-label="Jyutping phrase"
+                      value={row.jyutping}
+                      onChange={(event) =>
+                        onPatch(row, { jyutping: event.target.value })
+                      }
+                      onBlur={(event) =>
+                        onComplete(row, event.currentTarget.value)
+                      }
+                    />
                     <VocabularyPhrase
                       text={row.jyutping || "—"}
                       words={row.words}
@@ -101,6 +119,17 @@ export function CanvasTable({
                     aria-label="English translation"
                     placeholder="Meaning…"
                     value={row.definition}
+                    onFocus={(event) => {
+                      event.currentTarget.dataset.original =
+                        event.currentTarget.value;
+                    }}
+                    onBlur={(event) => {
+                      if (
+                        event.currentTarget.value !==
+                        event.currentTarget.dataset.original
+                      )
+                        onComplete(row, event.currentTarget.value, "english");
+                    }}
                     onChange={(e) =>
                       onPatch(row, {
                         definition: e.target.value,
@@ -125,11 +154,21 @@ export function CanvasTable({
                       }
                       value={row.answerChinese}
                       onChange={(e) => onAnswer(row, e.target.value)}
+                      onBlur={(event) =>
+                        onAnswerComplete(row, event.currentTarget.value)
+                      }
                     />
                   ) : (
-                    <span className="table-jyutping">
-                      {row.answerJyutping || "—"}
-                    </span>
+                    <input
+                      aria-label="Paired Jyutping phrase"
+                      value={row.answerJyutping}
+                      onChange={(event) =>
+                        onPatch(row, { answerJyutping: event.target.value })
+                      }
+                      onBlur={(event) =>
+                        onAnswerComplete(row, event.currentTarget.value)
+                      }
+                    />
                   )}
                   {!hidden && !compact && (
                     <input
@@ -137,6 +176,21 @@ export function CanvasTable({
                       aria-label="Paired English translation"
                       placeholder="Meaning…"
                       value={row.answerDefinition}
+                      onFocus={(event) => {
+                        event.currentTarget.dataset.original =
+                          event.currentTarget.value;
+                      }}
+                      onBlur={(event) => {
+                        if (
+                          event.currentTarget.value !==
+                          event.currentTarget.dataset.original
+                        )
+                          onAnswerComplete(
+                            row,
+                            event.currentTarget.value,
+                            "english",
+                          );
+                      }}
                       onChange={(e) =>
                         onPatch(row, { answerDefinition: e.target.value })
                       }
@@ -151,6 +205,17 @@ export function CanvasTable({
                       aria-label="English translation"
                       placeholder="Translation…"
                       value={row.definition}
+                      onFocus={(event) => {
+                        event.currentTarget.dataset.original =
+                          event.currentTarget.value;
+                      }}
+                      onBlur={(event) => {
+                        if (
+                          event.currentTarget.value !==
+                          event.currentTarget.dataset.original
+                        )
+                          onComplete(row, event.currentTarget.value, "english");
+                      }}
                       onChange={(e) =>
                         onPatch(row, {
                           definition: e.target.value,
