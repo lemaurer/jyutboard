@@ -1,3 +1,10 @@
+import {
+  canvasBoundary,
+  rubberAxis,
+  unRubberAxis,
+  springAxis,
+  type Boundary,
+} from "./canvasBoundary";
 export type View = { x: number; y: number; zoom: number };
 type Contact = { x: number; y: number };
 export type GestureClock = {
@@ -21,6 +28,8 @@ export class TabletGestures {
   private motionTime = 0;
   private coastFrame = 0;
   private zooming = false;
+  private dragView?: View;
+  private wheelTimer?: ReturnType<typeof setTimeout>;
   constructor(
     private viewport: HTMLElement,
     private read: () => View,
@@ -28,6 +37,7 @@ export class TabletGestures {
     private tool: () => string,
     private manipulate: (event: PointerEvent) => boolean = () => false,
     private clock: GestureClock = browserClock,
+    private boundary?: (zoom: number) => Boundary,
   ) {}
   get multipleContacts() {
     return this.contacts.size > 1;
@@ -36,6 +46,7 @@ export class TabletGestures {
     return this.navigating && !this.pen;
   }
   stop() {
+    clearTimeout(this.wheelTimer);
     this.clock.cancel(this.coastFrame);
     this.coastFrame = 0;
     this.velocity = { x: 0, y: 0 };
@@ -66,6 +77,7 @@ export class TabletGestures {
     )
       return false;
     this.contacts.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    this.dragView = this.rawView(this.read());
     this.navigating ||=
       this.contacts.size > 1 ||
       (!this.manipulate(event) &&
@@ -104,7 +116,7 @@ export class TabletGestures {
       this.zooming ||=
         previous.distance > 0 &&
         Math.abs(next.distance - previous.distance) > 1;
-      const view = this.read(),
+      const view = this.dragView || this.read(),
         rect = this.viewport.getBoundingClientRect();
       const zoom = Math.max(
         0.35,
@@ -118,11 +130,12 @@ export class TabletGestures {
       );
       const worldX = (view.x + previous.x - rect.left) / view.zoom,
         worldY = (view.y + previous.y - rect.top) / view.zoom;
-      this.write({
+      this.dragView = {
         zoom,
         x: worldX * zoom - (next.x - rect.left),
         y: worldY * zoom - (next.y - rect.top),
-      });
+      };
+      this.write(this.resist(this.dragView));
     }
     return true;
   }
@@ -137,7 +150,11 @@ export class TabletGestures {
     this.previous = this.contacts.size ? this.center() : undefined;
     if (!this.contacts.size) {
       this.navigating = false;
-      if (
+      if (handled && this.outside(this.read())) {
+        if (event.type === "pointercancel" || this.zooming)
+          this.velocity = { x: 0, y: 0 };
+        this.coast();
+      } else if (
         handled &&
         event.type !== "pointercancel" &&
         !this.zooming &&
@@ -145,6 +162,7 @@ export class TabletGestures {
       )
         this.coast();
       else this.stop();
+      this.dragView = undefined;
     } else {
       // A pinch lifting one finger must not become a fling or jump.
       this.velocity = { x: 0, y: 0 };
@@ -156,37 +174,105 @@ export class TabletGestures {
   releasePen(event: PointerEvent) {
     if (event.pointerType === "pen") this.pen = false;
   }
+  private bounds(zoom: number) {
+    return (
+      this.boundary?.(zoom) ??
+      canvasBoundary(
+        this.viewport.scrollWidth / zoom,
+        this.viewport.scrollHeight / zoom,
+        this.viewport.clientWidth,
+        this.viewport.clientHeight,
+        zoom,
+      )
+    );
+  }
+  private resist(view: View) {
+    const b = this.bounds(view.zoom);
+    return {
+      ...view,
+      x: rubberAxis(view.x, b.maxX, b.limitX),
+      y: rubberAxis(view.y, b.maxY, b.limitY),
+    };
+  }
+  private rawView(view: View) {
+    const b = this.bounds(view.zoom);
+    return {
+      ...view,
+      x: unRubberAxis(view.x, b.maxX, b.limitX),
+      y: unRubberAxis(view.y, b.maxY, b.limitY),
+    };
+  }
+  private outside(view: View) {
+    const b = this.bounds(view.zoom);
+    return (
+      view.x < -0.1 ||
+      view.x > b.maxX + 0.1 ||
+      view.y < -0.1 ||
+      view.y > b.maxY + 0.1
+    );
+  }
+  settle() {
+    this.stop();
+    if (this.outside(this.read())) this.coast();
+  }
+  panWheel(dx: number, dy: number) {
+    this.stop();
+    const view = this.rawView(this.read());
+    this.write(this.resist({ ...view, x: view.x + dx, y: view.y + dy }));
+    this.wheelTimer = setTimeout(() => this.settle(), 140);
+  }
   private coast() {
     let previous = this.clock.now();
     const tick = (time: number) => {
-      const elapsed = Math.min(64, time - previous);
+      const elapsed = Math.max(0, Math.min(64, time - previous));
       previous = time;
-      const decay = Math.exp(-elapsed / 325);
-      // Integrate the same decay at 60/120 Hz, rather than slowing per frame.
-      const travel = 325 * (1 - decay);
-      const view = this.read();
-      const x = Math.max(
-        0,
-        Math.min(
-          this.viewport.scrollWidth - this.viewport.clientWidth,
-          view.x + this.velocity.x * travel,
-        ),
-      );
-      const y = Math.max(
-        0,
-        Math.min(
-          this.viewport.scrollHeight - this.viewport.clientHeight,
-          view.y + this.velocity.y * travel,
-        ),
-      );
-      this.velocity.x = x === view.x ? 0 : this.velocity.x * decay;
-      this.velocity.y = y === view.y ? 0 : this.velocity.y * decay;
-      this.write({ ...view, x, y });
-      if (Math.hypot(this.velocity.x, this.velocity.y) > 0.035)
+      const decay = Math.exp(-elapsed / 325),
+        travel = 325 * (1 - decay);
+      const view = this.read(),
+        b = this.bounds(view.zoom);
+      const step = (
+        position: number,
+        velocity: number,
+        maximum: number,
+        limit: number,
+      ) => {
+        if (position < 0 || position > maximum) {
+          const spring = springAxis(position, velocity, maximum, elapsed);
+          return {
+            value: Math.max(-limit, Math.min(maximum + limit, spring.value)),
+            velocity: spring.velocity,
+          };
+        }
+        const value = position + velocity * travel;
+        return {
+          value: rubberAxis(value, maximum, limit),
+          velocity:
+            velocity * decay * (value < 0 || value > maximum ? 0.45 : 1),
+        };
+      };
+      const x = step(view.x, this.velocity.x, b.maxX, b.limitX),
+        y = step(view.y, this.velocity.y, b.maxY, b.limitY);
+      this.velocity = { x: x.velocity, y: y.velocity };
+      const next = { ...view, x: x.value, y: y.value };
+      this.write(next);
+      if (
+        this.outside(next) ||
+        Math.hypot(this.velocity.x, this.velocity.y) > 0.035
+      )
         this.coastFrame = this.clock.frame(tick);
-      else this.stop();
+      else {
+        this.write({
+          ...next,
+          x: Math.max(0, Math.min(b.maxX, next.x)),
+          y: Math.max(0, Math.min(b.maxY, next.y)),
+        });
+        this.stop();
+      }
     };
-    if (Math.hypot(this.velocity.x, this.velocity.y) > 0.035)
+    if (
+      this.outside(this.read()) ||
+      Math.hypot(this.velocity.x, this.velocity.y) > 0.035
+    )
       this.coastFrame = this.clock.frame(tick);
   }
   private center() {

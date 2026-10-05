@@ -65,6 +65,7 @@ export function installWebRuntime() {
     web: true,
     vocabulary: () => api("vocabulary"),
     transcribe: (audio) => api("transcribe", { audio }),
+    analyze: (text, language) => api("analyze", { text, language }),
     send: (payload) => api("send", { payload }),
     pair: async (value) => {
       if (value.action === "get") return storedPair();
@@ -117,7 +118,7 @@ export function installWebRuntime() {
       );
       url.search = new URLSearchParams({
         client: "gtx",
-        sl: "zh-CN",
+        sl: "yue",
         tl: "en",
         dt: "t",
         q: text,

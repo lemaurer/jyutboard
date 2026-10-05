@@ -251,11 +251,19 @@ test("centered large canvas, in-place cards, English/Jyutping, stickers and keyb
     )
     .toBeGreaterThan(2000);
   await expect(page.locator(".canvas")).toHaveCSS("width", "5600px");
+  await page.evaluate(() => {
+    window.desktop!.analyze = async () => ({
+      chinese: "我哋可唔可以飲啲茶？",
+      jyutping: "ngo5 dei6 ho2 m4 ho2 ji5 jam2 di1 caa4?",
+      definition: "Can we get some tea?",
+      words: [],
+    });
+  });
   await page.getByLabel("Input language").selectOption("english");
   await page.getByLabel("Cantonese phrase").fill("Can we get some tea?");
   await page.getByRole("button", { name: "Add phrase", exact: true }).click();
   await expect(page.getByTestId("phrase-card").locator("h2")).toHaveText(
-    "Can we get some tea?",
+    "ngo5 dei6 ho2 m4 ho2 ji5 jam2 di1 caa4?",
   );
   await page.getByLabel("Input language").selectOption("jyutping");
   await page.getByLabel("Cantonese phrase").fill("nei5 hou2");
@@ -958,23 +966,19 @@ test("card modes share typography, release unused height, and conversation favou
   await page.getByRole("button", { name: "Show details", exact: true }).click();
   await page.getByRole("button", { name: "Save phrase", exact: true }).click();
   await page.getByLabel("Selected card mode").selectOption("peek");
-  const compact = await phrase
-    .locator("h2")
-    .evaluate((el) => ({
-      size: getComputedStyle(el).fontSize,
-      weight: getComputedStyle(el).fontWeight,
-      font: getComputedStyle(el).fontFamily,
-    }));
+  const compact = await phrase.locator("h2").evaluate((el) => ({
+    size: getComputedStyle(el).fontSize,
+    weight: getComputedStyle(el).fontWeight,
+    font: getComputedStyle(el).fontFamily,
+  }));
   const compactHeight = (await phrase.boundingBox())!.height;
   await page.getByLabel("Selected card mode").selectOption("practice");
   expect(
-    await phrase
-      .locator("h2")
-      .evaluate((el) => ({
-        size: getComputedStyle(el).fontSize,
-        weight: getComputedStyle(el).fontWeight,
-        font: getComputedStyle(el).fontFamily,
-      })),
+    await phrase.locator("h2").evaluate((el) => ({
+      size: getComputedStyle(el).fontSize,
+      weight: getComputedStyle(el).fontWeight,
+      font: getComputedStyle(el).fontFamily,
+    })),
   ).toEqual(compact);
   expect((await phrase.boundingBox())!.height).toBeCloseTo(compactHeight, 0);
   await page.getByLabel("Selected card mode").selectOption("full");

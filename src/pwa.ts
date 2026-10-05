@@ -31,18 +31,39 @@ export function installTabletViewport() {
   if (!window.desktop?.web) return;
   const vv = window.visualViewport;
   let frame = 0;
+  let baseline = Math.max(
+    innerHeight,
+    document.documentElement.clientHeight,
+    vv?.height || 0,
+  );
+  const settleTimers = new Set<ReturnType<typeof setTimeout>>();
   const update = () => {
     cancelAnimationFrame(frame);
     frame = requestAnimationFrame(() => {
-      const style = document.documentElement.style;
-      style.setProperty("--usable-height", `${vv?.height || innerHeight}px`);
-      style.setProperty("--usable-width", `${vv?.width || innerWidth}px`);
-      style.setProperty("--viewport-top", `${vv?.offsetTop || 0}px`);
-      style.setProperty("--viewport-left", `${vv?.offsetLeft || 0}px`);
-      document.documentElement.classList.toggle(
-        "keyboard-open",
-        (vv?.height || innerHeight) < innerHeight - 120,
+      const height = vv?.height || innerHeight;
+      baseline = Math.max(
+        baseline,
+        innerHeight,
+        document.documentElement.clientHeight,
+        height,
       );
+      const open = height < baseline - 120;
+      const style = document.documentElement.style;
+      style.setProperty("--usable-height", `${height}px`);
+      style.setProperty("--usable-width", `${vv?.width || innerWidth}px`);
+      // Safari can retain an obsolete offset even after the keyboard has closed.
+      style.setProperty("--viewport-top", `${open ? vv?.offsetTop || 0 : 0}px`);
+      style.setProperty(
+        "--viewport-left",
+        `${open ? vv?.offsetLeft || 0 : 0}px`,
+      );
+      document.documentElement.classList.toggle("keyboard-open", open);
+      if (!open) {
+        if (scrollX || scrollY) window.scrollTo(0, 0);
+        if (document.scrollingElement) document.scrollingElement.scrollTop = 0;
+        document.body.scrollTop = 0;
+      }
+      if (!open) return;
       requestAnimationFrame(() => {
         const input = document.activeElement as HTMLElement | null;
         const canvas = document.querySelector<HTMLElement>(".canvas-viewport");
@@ -57,10 +78,28 @@ export function installTabletViewport() {
       });
     });
   };
+  const settle = () => {
+    for (const timer of settleTimers) clearTimeout(timer);
+    settleTimers.clear();
+    update();
+    for (const delay of [120, 350, 650]) {
+      const timer = setTimeout(() => {
+        settleTimers.delete(timer);
+        update();
+      }, delay);
+      settleTimers.add(timer);
+    }
+  };
+  const rotate = () => {
+    baseline = Math.max(innerHeight, vv?.height || 0);
+    settle();
+  };
   vv?.addEventListener("resize", update);
   vv?.addEventListener("scroll", update);
   window.addEventListener("resize", update);
-  document.addEventListener("focusin", update);
-  document.addEventListener("focusout", update);
+  window.addEventListener("scroll", update, { passive: true });
+  window.addEventListener("orientationchange", rotate);
+  document.addEventListener("focusin", settle);
+  document.addEventListener("focusout", settle);
   update();
 }

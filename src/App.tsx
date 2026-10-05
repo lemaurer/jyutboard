@@ -1,3 +1,4 @@
+import { canvasBoundary } from "./canvasBoundary";
 import { lassoHitsBox, lassoHitsStroke } from "./lasso";
 import { inkOutline } from "./ink";
 import { TabletGestures } from "./TabletGestures";
@@ -83,7 +84,7 @@ import {
   type TableRow,
   type Word,
 } from "./model";
-import { analyzeLocal, translatePublic } from "./language";
+import { analyzeLocal, analyzeInputLocal, translatePublic } from "./language";
 import { loadPreference, preference, remember, sessions } from "./storage";
 import { useLesson } from "./useLesson";
 import { AudioRecorder } from "./AudioRecorder";
@@ -98,6 +99,7 @@ import {
   type HighlightMode,
 } from "./VocabularyPhrase";
 import { Settings } from "./Settings";
+import { UpdateControls } from "./UpdateControls";
 import { StickerArt, StickerLibrary } from "./Stickers";
 import { DrawingLayer } from "./DrawingLayer";
 import { DrawingControls } from "./DrawingControls";
@@ -196,9 +198,13 @@ export default function App() {
     ) === "true",
   );
   const [rightOpen, setRightOpen] = useState(false);
+  const [creatingPhrase, setCreatingPhrase] = useState(false);
+  const creatingRef = useRef(false);
   const tablet = matchMedia("(pointer: coarse)").matches;
   const lesson = useLesson(session, role);
   const { doc, cards, strokes, connectors, peers, status, saved } = lesson;
+  const currentDocument = useRef(doc);
+  currentDocument.current = doc;
   const [selected, setSelected] = useState<string | null>(null);
   const [selectedRow, setSelectedRow] = useState<string | null>(null);
   const [selectedItems, setSelectedItems] = useState<Set<string>>(new Set());
@@ -309,6 +315,32 @@ export default function App() {
   toolRef.current = tool;
   const navigationRef = useRef({ stopFollowing, publishView, selectedItems });
   navigationRef.current = { stopFollowing, publishView, selectedItems };
+  const canvasMargin = useRef({ x: 0, y: 0 });
+  function layoutCanvas(scale: number) {
+    const node = viewport.current,
+      canvas = board.current;
+    if (!node || !canvas) return;
+    const x = node.scrollLeft - canvasMargin.current.x,
+      y = node.scrollTop - canvasMargin.current.y;
+    const bounds = canvasBoundary(
+      BOARD_WIDTH,
+      BOARD_HEIGHT,
+      node.clientWidth,
+      node.clientHeight,
+      scale,
+    );
+    canvasMargin.current = { x: bounds.limitX, y: bounds.limitY };
+    const space = canvas.parentElement!;
+    space.style.width = `${BOARD_WIDTH * scale + bounds.limitX * 2}px`;
+    space.style.height = `${BOARD_HEIGHT * scale + bounds.limitY * 2}px`;
+    canvas.style.left = `${bounds.limitX}px`;
+    canvas.style.top = `${bounds.limitY}px`;
+    node.scrollLeft = x + bounds.limitX;
+    node.scrollTop = y + bounds.limitY;
+  }
+  useLayoutEffect(() => {
+    layoutCanvas(zoom);
+  }, [zoom]);
   const camera = useRef<{ x: number; y: number; zoom: number } | null>(null);
   const cameraFrame = useRef(0);
   const cameraCommit = useRef<ReturnType<typeof setTimeout> | undefined>(
@@ -320,15 +352,12 @@ export default function App() {
       node = viewport.current,
       canvas = board.current;
     if (!view || !node || !canvas) return;
-    const space = canvas.parentElement!;
-    space.style.width = `${BOARD_WIDTH * view.zoom}px`;
-    space.style.height = `${BOARD_HEIGHT * view.zoom}px`;
+    layoutCanvas(view.zoom);
     canvas.style.transform = `scale(${view.zoom})`;
     zoomRef.current = view.zoom;
-    node.scrollLeft = view.x;
-    node.scrollTop = view.y;
-    view.x = node.scrollLeft;
-    view.y = node.scrollTop;
+    node.scrollLeft = view.x + canvasMargin.current.x;
+    node.scrollTop = view.y + canvasMargin.current.y;
+    // Keep subpixel camera coordinates: WebKit rounds scroll offsets, which would otherwise stall the spring.
     navigationRef.current.publishView();
     if (commit) {
       camera.current = null;
@@ -342,8 +371,8 @@ export default function App() {
       node,
       () =>
         camera.current ?? {
-          x: node.scrollLeft,
-          y: node.scrollTop,
+          x: node.scrollLeft - canvasMargin.current.x,
+          y: node.scrollTop - canvasMargin.current.y,
           zoom: zoomRef.current,
         },
       (view) => {
@@ -367,6 +396,15 @@ export default function App() {
           !["laser", "erase"].includes(toolRef.current),
         );
       },
+      undefined,
+      (scale) =>
+        canvasBoundary(
+          BOARD_WIDTH,
+          BOARD_HEIGHT,
+          node.clientWidth,
+          node.clientHeight,
+          scale,
+        ),
     );
     const releasePen = (event: globalThis.PointerEvent) =>
       tabletGestures.current?.releasePen(event);
@@ -375,7 +413,7 @@ export default function App() {
         (event.pointerType === "touch" || event.pointerType === "pen") &&
         !node.contains(event.target as Node)
       )
-        tabletGestures.current?.stop();
+        tabletGestures.current?.settle();
     };
     window.addEventListener("pointerdown", stopCoast, true);
     window.addEventListener("pointerup", releasePen);
@@ -394,6 +432,7 @@ export default function App() {
     const node = viewport.current;
     if (!node) return;
     const layout = () => {
+      layoutCanvas(zoomRef.current);
       const bounds = node.getBoundingClientRect();
       document.documentElement.style.setProperty(
         "--details-top",
@@ -618,8 +657,10 @@ export default function App() {
     const left = peer.view.x * peer.view.zoom - node.clientWidth / 2;
     const top = peer.view.y * peer.view.zoom - node.clientHeight / 2;
     const frame = requestAnimationFrame(() => {
-      if (Math.abs(node.scrollLeft - left) > 2) node.scrollLeft = left;
-      if (Math.abs(node.scrollTop - top) > 2) node.scrollTop = top;
+      if (Math.abs(node.scrollLeft - canvasMargin.current.x - left) > 2)
+        node.scrollLeft = left + canvasMargin.current.x;
+      if (Math.abs(node.scrollTop - canvasMargin.current.y - top) > 2)
+        node.scrollTop = top + canvasMargin.current.y;
     });
     return () => cancelAnimationFrame(frame);
   }, [peers, followPeerId]);
@@ -650,7 +691,22 @@ export default function App() {
     const node = viewport.current;
     if (!node) return;
     function wheel(event: WheelEvent) {
-      if (!node || !(event.ctrlKey || event.metaKey || event.altKey)) return;
+      if (!node) return;
+      if (!(event.ctrlKey || event.metaKey || event.altKey)) {
+        if ((event.target as Element).closest("textarea,input,select")) return;
+        event.preventDefault();
+        const unit =
+          event.deltaMode === 1
+            ? 16
+            : event.deltaMode === 2
+              ? node.clientHeight
+              : 1;
+        tabletGestures.current?.panWheel(
+          event.deltaX * unit,
+          event.deltaY * unit,
+        );
+        return;
+      }
       event.preventDefault();
       const bounds = node.getBoundingClientRect();
       const cursorX = event.clientX - bounds.left;
@@ -661,13 +717,15 @@ export default function App() {
         0.35,
         2.5,
       );
-      const pointX = (node.scrollLeft + cursorX) / oldZoom;
-      const pointY = (node.scrollTop + cursorY) / oldZoom;
+      const pointX =
+        (node.scrollLeft - canvasMargin.current.x + cursorX) / oldZoom;
+      const pointY =
+        (node.scrollTop - canvasMargin.current.y + cursorY) / oldZoom;
       zoomRef.current = nextZoom;
       setZoom(nextZoom);
       requestAnimationFrame(() => {
-        node.scrollLeft = pointX * nextZoom - cursorX;
-        node.scrollTop = pointY * nextZoom - cursorY;
+        node.scrollLeft = pointX * nextZoom - cursorX + canvasMargin.current.x;
+        node.scrollTop = pointY * nextZoom - cursorY + canvasMargin.current.y;
       });
     }
     node.addEventListener("wheel", wheel, { passive: false });
@@ -807,23 +865,27 @@ export default function App() {
   function centerView(x: number, y: number, scale = zoomRef.current) {
     const node = viewport.current;
     if (!node) return;
-    node.scrollLeft = clamp(
-      x * scale - node.clientWidth / 2,
-      0,
-      BOARD_WIDTH * scale - node.clientWidth,
-    );
-    node.scrollTop = clamp(
-      y * scale - node.clientHeight / 2,
-      0,
-      BOARD_HEIGHT * scale - node.clientHeight,
-    );
+    node.scrollLeft =
+      clamp(
+        x * scale - node.clientWidth / 2,
+        0,
+        Math.max(0, BOARD_WIDTH * scale - node.clientWidth),
+      ) + canvasMargin.current.x;
+    node.scrollTop =
+      clamp(
+        y * scale - node.clientHeight / 2,
+        0,
+        Math.max(0, BOARD_HEIGHT * scale - node.clientHeight),
+      ) + canvasMargin.current.y;
   }
   function viewCenter(): [number, number] {
     const node = viewport.current;
     if (!node) return [CENTER_X, CENTER_Y];
     return [
-      (node.scrollLeft + node.clientWidth / 2) / zoomRef.current,
-      (node.scrollTop + node.clientHeight / 2) / zoomRef.current,
+      (node.scrollLeft - canvasMargin.current.x + node.clientWidth / 2) /
+        zoomRef.current,
+      (node.scrollTop - canvasMargin.current.y + node.clientHeight / 2) /
+        zoomRef.current,
     ];
   }
   function publishView() {
@@ -939,40 +1001,68 @@ export default function App() {
       clamp(y - 70 + (cards.length % 3) * 28, 0, BOARD_HEIGHT - 300),
     ];
   }
-  function addPhrase(
+  async function addPhrase(
     text = input,
     location = newCardPosition(),
     language = sourceLanguage,
   ) {
-    if (!doc || !text.trim()) return;
+    if (!doc || !text.trim() || creatingRef.current) return;
     if (text.length > 2000) {
       notify("Keep each phrase under 2,000 characters.");
       return;
     }
     if (language === "chinese" && !/\p{Script=Han}/u.test(text)) {
       notify(
-        "Choose Jyutping or English above the input, or type Chinese characters.",
+        "Choose Jyutping or English beside the input, or type Chinese characters.",
       );
       return;
     }
     const content = text.trim();
-    const card = createCard({
-      sourceLanguage: language,
-      ...(language === "chinese"
-        ? { chinese: content, ...analyzeLocal(content) }
-        : language === "jyutping"
-          ? { jyutping: content }
-          : { definition: content, translation: "edited" }),
-      x: clamp(location[0], 0, BOARD_WIDTH - 300),
-      y: clamp(location[1], 0, BOARD_HEIGHT - 300),
-    });
-    lesson.stopCapturing();
-    addCard(doc, card);
-    lesson.stopCapturing();
-    selectCard(card.id);
-    setInput("");
-    lesson.presence({ draft: "" });
-    if (language === "chinese") void enrichPhrase(doc, card);
+    const document = doc;
+    creatingRef.current = true;
+    setCreatingPhrase(true);
+    try {
+      const analyzed =
+        language === "chinese"
+          ? { chinese: content, ...analyzeLocal(content) }
+          : (analyzeInputLocal(content, language) ??
+            (await window.desktop?.analyze?.(content, language)));
+      if (
+        !analyzed?.chinese?.trim() ||
+        !analyzed.jyutping?.trim() ||
+        !analyzed.definition?.trim()
+      )
+        throw Error(
+          "Join an Internet lesson or update the desktop app to convert this phrase. Your text is kept.",
+        );
+      // Every source language produces the same Chinese/Jyutping/English card.
+      const card = createCard({
+        sourceLanguage: "chinese",
+        ...analyzed,
+        words: analyzed.words.length
+          ? analyzed.words
+          : analyzeLocal(analyzed.chinese).words,
+        translation:
+          language === "chinese"
+            ? analyzeLocal(content).translation
+            : "translated",
+        x: clamp(location[0], 0, BOARD_WIDTH - 300),
+        y: clamp(location[1], 0, BOARD_HEIGHT - 300),
+      });
+      if (document !== currentDocument.current) return;
+      lesson.stopCapturing();
+      addCard(document, card);
+      lesson.stopCapturing();
+      selectCard(card.id);
+      setInput((current) => (current === text ? "" : current));
+      lesson.presence({ draft: "" });
+      if (language === "chinese") void enrichPhrase(document, card);
+    } catch (error) {
+      notify(errorText(error));
+    } finally {
+      creatingRef.current = false;
+      setCreatingPhrase(false);
+    }
   }
   function addBlankPhrase(location = newCardPosition()) {
     if (!doc) return;
@@ -1833,13 +1923,13 @@ export default function App() {
     }
     const cx = node.clientWidth / 2;
     const cy = node.clientHeight / 2;
-    const x = (node.scrollLeft + cx) / oldZoom;
-    const y = (node.scrollTop + cy) / oldZoom;
+    const x = (node.scrollLeft - canvasMargin.current.x + cx) / oldZoom;
+    const y = (node.scrollTop - canvasMargin.current.y + cy) / oldZoom;
     zoomRef.current = nextZoom;
     setZoom(nextZoom);
     requestAnimationFrame(() => {
-      node.scrollLeft = x * nextZoom - cx;
-      node.scrollTop = y * nextZoom - cy;
+      node.scrollLeft = x * nextZoom - cx + canvasMargin.current.x;
+      node.scrollTop = y * nextZoom - cy + canvasMargin.current.y;
     });
   }
   async function host() {
@@ -2230,6 +2320,7 @@ export default function App() {
             )}
           </div>
           <div className="topbar-right">
+            <UpdateControls compact live={peers.length > 0} notify={notify} />
             <span className={`connection ${status === "Live" ? "live" : ""}`}>
               <i />
               {status === "Live" ? `${peers.length + 1} live` : status}
@@ -2749,9 +2840,10 @@ export default function App() {
               }}
             >
               <div
+                className="canvas-space"
                 style={{
-                  width: BOARD_WIDTH * zoom,
-                  height: BOARD_HEIGHT * zoom,
+                  width: BOARD_WIDTH * zoom + canvasMargin.current.x * 2,
+                  height: BOARD_HEIGHT * zoom + canvasMargin.current.y * 2,
                 }}
               >
                 <div
@@ -3433,6 +3525,19 @@ export default function App() {
               }}
             >
               <div className="composer-entry">
+                <select
+                  className="composer-language"
+                  aria-label="Input language"
+                  value={sourceLanguage}
+                  disabled={creatingPhrase}
+                  onChange={(event) =>
+                    setSourceLanguage(event.target.value as SourceLanguage)
+                  }
+                >
+                  <option value="chinese">中文</option>
+                  <option value="jyutping">Jyutping</option>
+                  <option value="english">English</option>
+                </select>
                 <textarea
                   aria-label="Cantonese phrase"
                   placeholder={
@@ -3465,29 +3570,12 @@ export default function App() {
                 <button
                   className="primary"
                   type="submit"
-                  disabled={!input.trim() || !doc}
+                  disabled={!input.trim() || !doc || creatingPhrase}
                 >
-                  <Plus size={17} /> Add phrase
+                  <Plus size={17} />{" "}
+                  {creatingPhrase ? "Converting…" : "Add phrase"}
                 </button>
               </div>
-              {!tablet && (
-                <div className="composer-controls">
-                  <label className="input-language">
-                    Write in{" "}
-                    <select
-                      aria-label="Input language"
-                      value={sourceLanguage}
-                      onChange={(event) =>
-                        setSourceLanguage(event.target.value as SourceLanguage)
-                      }
-                    >
-                      <option value="chinese">中文 · Chinese</option>
-                      <option value="jyutping">Jyutping</option>
-                      <option value="english">English</option>
-                    </select>
-                  </label>
-                </div>
-              )}
             </form>
           </section>
           {effectiveRightOpen && (
@@ -4234,8 +4322,12 @@ export default function App() {
                             parent ? card.id : null,
                           );
                           viewport.current?.scrollTo({
-                            left: Math.max(0, card.x * zoom - 40),
-                            top: Math.max(0, card.y * zoom - 40),
+                            left:
+                              Math.max(0, card.x * zoom - 40) +
+                              canvasMargin.current.x,
+                            top:
+                              Math.max(0, card.y * zoom - 40) +
+                              canvasMargin.current.y,
                             behavior: "smooth",
                           });
                         }}
@@ -4287,6 +4379,7 @@ export default function App() {
       {settings && (
         <Settings
           vocabularyMessage={vocabularyMessage}
+          live={peers.length > 0}
           close={() => setSettings(false)}
           notify={notify}
           online={online}

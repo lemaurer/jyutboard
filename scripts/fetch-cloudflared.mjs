@@ -18,7 +18,10 @@ const assets = {
     "f096265ec2fcbe9bb6e2d64268db167ced3fcbb83d894bdb9e2fcdb26f2ea7e2",
   ],
 };
-const selected = assets[`${process.platform}-${process.arch}`];
+const selected =
+  assets[
+    `${process.platform}-${process.env.JYUTBOARD_BUILD_ARCH || process.arch}`
+  ];
 if (!selected) {
   console.log(
     "No bundled cloudflared for this platform; remote hosting needs cloudflared on PATH.",

@@ -27,8 +27,13 @@ jobs:
       matrix:
         include:
           - os: macos-14
-            command: npm run dist:mac
+            arch: arm64
+            command: npm run dist:mac -- --arm64
+          - os: macos-14
+            arch: x64
+            command: npm run dist:mac -- --x64
           - os: windows-latest
+            arch: x64
             command: npm run dist:win
     runs-on: ${{ matrix.os }}
     steps:
@@ -39,9 +44,12 @@ jobs:
           cache: npm
       - run: npm ci
       - run: ${{ matrix.command }}
+        env:
+          JYUTBOARD_BUILD_ARCH: ${{ matrix.arch }}
+      - run: node scripts/update-manifests.mjs
       - uses: actions/upload-artifact@v4
         with:
-          name: JyutBoard-${{ runner.os }}-${{ github.ref_name }}
+          name: JyutBoard-${{ runner.os }}-${{ matrix.arch }}-${{ github.ref_name }}
           path: release/*
           if-no-files-found: error
           retention-days: 30

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Mic, Square } from "lucide-react";
 import { MAX_AUDIO } from "./model";
+import { recordingMime, settledRecording } from "./recording";
 type Phase = "idle" | "starting" | "recording" | "transcribing";
 export function PushToTalk({
   onPhrase,
@@ -84,9 +85,12 @@ export function PushToTalk({
         return;
       }
       stream.current = media;
-      const mime = ["audio/webm;codecs=opus", "audio/mp4"].find((m) =>
-        MediaRecorder.isTypeSupported(m),
-      );
+      if (
+        !navigator.mediaDevices?.getUserMedia ||
+        typeof MediaRecorder === "undefined"
+      )
+        throw Error("Open JyutBoard in Safari over HTTPS to record a phrase.");
+      const mime = recordingMime((m) => MediaRecorder.isTypeSupported(m));
       const r = new MediaRecorder(
         media,
         mime ? { mimeType: mime, audioBitsPerSecond: 64000 } : undefined,
@@ -111,14 +115,13 @@ export function PushToTalk({
           notify("Recording failed. Check your microphone and try again.");
         }
       };
-      r.onstop = () => {
+      r.onstop = async () => {
         clearTimeout(timer.current);
         media.getTracks().forEach((t) => t.stop());
         recorder.current = null;
         if (!mounted.current || failed) return;
-        const blob = new Blob(chunks, {
-          type: r.mimeType || mime || "audio/webm",
-        });
+        const blob = await settledRecording(chunks, r.mimeType || mime || "");
+        if (!mounted.current) return;
         if (blob.size < 100 || blob.size > MAX_AUDIO) {
           update("idle");
           notify(
@@ -138,7 +141,7 @@ export function PushToTalk({
         };
         reader.readAsDataURL(blob);
       };
-      r.start(250);
+      r.start();
       recordedAt.current = Date.now();
       update("recording");
       timer.current = setTimeout(stop, 60000);
@@ -176,13 +179,17 @@ export function PushToTalk({
         className={state === "recording" ? "recording-active" : ""}
         disabled={state === "transcribing"}
         onPointerDown={(e) => {
+          e.preventDefault();
+          (document.activeElement as HTMLElement | null)?.blur();
           e.currentTarget.setPointerCapture(e.pointerId);
           press();
         }}
         onPointerUp={release}
         onPointerCancel={() => {
-          cancelled.current = true;
-          stop();
+          // Permission sheets can cancel the initiating touch on iPad. Keep the
+          // microphone opening; a tap or a held release will stop the recording.
+          pressedAt.current = 0;
+          if (phase.current === "recording") stop();
         }}
         onKeyDown={(e) => {
           if ((e.key === " " || e.key === "Enter") && !e.repeat) {

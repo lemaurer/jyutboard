@@ -8,6 +8,7 @@ import {
   systemPreferences,
   dialog,
   clipboard,
+  shell,
 } from "electron";
 import { join } from "node:path";
 import { readFile, writeFile, rename } from "node:fs/promises";
@@ -16,6 +17,9 @@ import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { existsSync } from "node:fs";
 import { startRelay } from "./relay-server";
 import { z } from "zod";
+import { DesktopUpdates } from "./update";
+let updater: DesktopUpdates | undefined;
+let installingUpdate = false;
 let window: BrowserWindow | null = null;
 let relay: Awaited<ReturnType<typeof startRelay>> | undefined;
 let tunnel: ChildProcessWithoutNullStreams | undefined;
@@ -62,6 +66,38 @@ app.whenReady().then(async () => {
     secureDnsServers: ["https://cloudflare-dns.com/dns-query"],
   });
   await loadSecrets();
+  updater = new DesktopUpdates({
+    version: app.getVersion(),
+    platform: process.platform,
+    arch: process.arch,
+    packaged: app.isPackaged && !process.env.PORTABLE_EXECUTABLE_DIR,
+    executable: process.execPath,
+    directory: join(app.getPath("userData"), "updates"),
+    fetch: (input, init) =>
+      net.fetch(input instanceof URL ? input.href : input, init),
+    quit: () => app.quit(),
+  });
+  await updater.start();
+  ipcMain.handle("updates:get", (event) => {
+    trusted(event);
+    return updater!.state;
+  });
+  ipcMain.handle("updates:check", (event) => {
+    trusted(event);
+    return updater!.check();
+  });
+  ipcMain.handle("updates:enabled", (event, enabled) => {
+    trusted(event);
+    return updater!.setEnabled(z.boolean().parse(enabled));
+  });
+  ipcMain.handle("updates:install", (event) => {
+    trusted(event);
+    installingUpdate = true;
+    return updater!.restart().catch((error) => {
+      installingUpdate = false;
+      throw error;
+    });
+  });
   ipcMain.handle("settings:get", (event) => {
     trusted(event);
     return {
@@ -245,7 +281,7 @@ app.whenReady().then(async () => {
       needsToken &&
       !secrets.queueToken &&
       Boolean(secrets.pairRoom) &&
-      ["vocabulary", "transcribe"].includes(action || "");
+      ["vocabulary", "transcribe", "analyze"].includes(action || "");
     if (needsToken && !secrets.queueToken && !pairedGuest)
       throw Error(
         "Pair with Leif's room, or add the JyutDeck request token in Settings first.",
@@ -274,6 +310,14 @@ app.whenReady().then(async () => {
       throw Error(result.error || "JyutDeck connection unavailable.");
     return result;
   }
+  ipcMain.handle("board:analyze", async (event, text, language) => {
+    trusted(event);
+    return boardRequest({
+      action: "analyze",
+      text: z.string().trim().min(1).max(2000).parse(text),
+      language: z.enum(["chinese", "jyutping", "english"]).parse(language),
+    });
+  });
   ipcMain.handle("board:vocabulary", async (event) => {
     trusted(event);
     return boardRequest({ action: "vocabulary" });
@@ -423,7 +467,11 @@ app.whenReady().then(async () => {
         sandbox: true,
       },
     });
-    window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+    window.webContents.setWindowOpenHandler(({ url }) => {
+      if (url === "https://github.com/lemaurer/jyutboard/releases/latest")
+        void shell.openExternal(url);
+      return { action: "deny" };
+    });
     window.webContents.on("will-navigate", (event) => event.preventDefault());
     if (!app.isPackaged && process.env.JYUTBOARD_DEV_URL)
       window.loadURL("http://localhost:5173");
@@ -438,7 +486,16 @@ app.whenReady().then(async () => {
   });
 });
 app.on("window-all-closed", () => app.quit());
-app.on("before-quit", () => {
+app.on("before-quit", (event) => {
+  if (!installingUpdate && updater?.canInstall && updater.state.enabled) {
+    event.preventDefault();
+    installingUpdate = true;
+    void updater
+      .install(false)
+      .catch(() => {})
+      .finally(() => app.quit());
+    return;
+  }
   tunnel?.kill();
   void relay?.close();
 });

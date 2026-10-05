@@ -1,13 +1,16 @@
 import { useEffect, useState } from "react";
 import { X } from "lucide-react";
+import { UpdateControls } from "./UpdateControls";
 export function Settings({
   close,
+  live = false,
   notify,
   online,
   setOnline,
   vocabularyMessage,
 }: {
   close: () => void;
+  live?: boolean;
   notify: (text: string) => void;
   online: boolean;
   setOnline: (value: boolean) => void;
@@ -66,6 +69,8 @@ export function Settings({
             <X size={18} />
           </button>
         </div>
+        <UpdateControls live={live} notify={notify} />
+        <hr />
         <p>
           Preferences belong to this device. Credentials never enter the shared
           lesson.

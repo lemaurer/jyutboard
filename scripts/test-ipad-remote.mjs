@@ -54,6 +54,29 @@ try {
     isMobile: true,
     hasTouch: true,
   });
+  const synthetic =
+    "data:audio/mp4;base64," +
+    (await readFile(syntheticAudio)).toString("base64");
+  await context.addInitScript((audio) => {
+    // Inject a known Cantonese audio source, leaving WebKit's actual recorder intact.
+    Object.defineProperty(MediaDevices.prototype, "getUserMedia", {
+      configurable: true,
+      value: async () => {
+        const ctx = new AudioContext();
+        await ctx.resume();
+        const bytes = Uint8Array.from(atob(audio.split(",")[1]), (c) =>
+          c.charCodeAt(0),
+        ).buffer;
+        const buffer = await ctx.decodeAudioData(bytes);
+        const source = ctx.createBufferSource();
+        source.buffer = buffer;
+        const destination = ctx.createMediaStreamDestination();
+        source.connect(destination);
+        source.start(ctx.currentTime + 0.5);
+        return destination.stream;
+      },
+    });
+  }, synthetic);
   const ipad = await context.newPage();
   ipad.on("console", (message) => {
     if (message.type() === "error")
@@ -117,16 +140,76 @@ try {
     "你好",
     { timeout: 10000 },
   );
+  const converted = await ipad.evaluate(async () => {
+    const english = await window.desktop.analyze(
+      "Can we drink some tea?",
+      "english",
+    );
+    const jyutping = await window.desktop.analyze(
+      "ngo5 soeng2 jam2 seoi2",
+      "jyutping",
+    );
+    return { english, jyutping };
+  });
+  for (const phrase of Object.values(converted)) {
+    expect(phrase.chinese).toMatch(/[\u3400-\u9fff]/);
+    expect(phrase.jyutping).toMatch(/[1-6]/);
+    expect(phrase.definition.length).toBeGreaterThan(2);
+    expect(phrase.words.length).toBeGreaterThan(0);
+  }
+  await ipad.evaluate(() => {
+    window.__recordToasts = [];
+    new MutationObserver(() => {
+      const text = document.querySelector(".toast")?.textContent;
+      if (text && !window.__recordToasts.includes(text))
+        window.__recordToasts.push(text);
+    }).observe(document.body, {
+      subtree: true,
+      childList: true,
+      characterData: true,
+    });
+  });
+  const mic = ipad.getByRole("button", { name: "Hold to speak Cantonese" });
+  await mic.click();
+  await expect(mic)
+    .toHaveClass(/recording-active/, { timeout: 15000 })
+    .catch(async (error) => {
+      console.log(
+        "Recording diagnostic:",
+        await ipad.evaluate(() => window.__recordToasts),
+      );
+      console.log(
+        "WebKit codec support:",
+        await ipad.evaluate(() => ({
+          mp4: MediaRecorder.isTypeSupported("audio/mp4"),
+          aac: MediaRecorder.isTypeSupported("audio/mp4;codecs=mp4a.40.2"),
+        })),
+      );
+      throw error;
+    });
+  await ipad.waitForTimeout(4000);
+  await mic.click();
+  await expect(ipad.getByTestId("phrase-card")).toHaveCount(2, {
+    timeout: 60000,
+  });
+  const recorded = ipad.getByTestId("phrase-card").last();
+  await expect(recorded.locator("h2")).toContainText(/你好|飲水/);
+  await ipad.getByRole("button", { name: "Show details", exact: true }).click();
+  const clip = await ipad.locator(".inspector audio").getAttribute("src");
+  await ipad.getByRole("button", { name: "Hide details", exact: true }).click();
+  expect(clip).toMatch(/^data:audio\/mp4/);
+  expect(clip.length).toBeGreaterThan(1000);
+  await expect(teacher.getByTestId("phrase-card")).toHaveCount(2);
   await ipad.reload();
-  await expect(ipad.getByTestId("phrase-card").locator("h2")).toHaveText(
-    "你好",
-  );
+  await expect(
+    ipad.getByTestId("phrase-card").first().locator("h2"),
+  ).toHaveText("你好");
   await ipad.getByRole("button", { name: "Share / Sync" }).click();
   await expect(
     ipad.getByRole("button", { name: "Join Leif", exact: true }),
   ).toBeVisible();
   console.log(
-    "PASS: packaged desktop ↔ hosted iPad/WebKit through Internet relay; shared edits, small Chinese, remembered room, real vocabulary, real synthetic Cantonese transcription and authenticated no-write queue validation.",
+    "PASS: packaged desktop ↔ hosted iPad/WebKit through Internet relay; shared edits, small Chinese, remembered room, real vocabulary, actual WebKit MP4 recorder → real Cantonese transcription with attached clip, complete English/Jyutping conversions and authenticated no-write queue validation.",
   );
 } finally {
   await browser?.close();

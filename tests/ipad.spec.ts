@@ -273,9 +273,14 @@ test("iPad lasso selects a group and drags it without scrolling or opening detai
     const before = await cards.evaluateAll((nodes) =>
       nodes.map((el) => parseFloat((el as HTMLElement).style.left)),
     );
-    const scroll = await page
-      .locator(".canvas-viewport")
-      .evaluate((el) => ({ x: el.scrollLeft, y: el.scrollTop }));
+    const scroll = await page.locator(".canvas-viewport").evaluate((el) => ({
+      x:
+        el.scrollLeft -
+        (el.querySelector<HTMLElement>(".canvas")?.offsetLeft || 0),
+      y:
+        el.scrollTop -
+        (el.querySelector<HTMLElement>(".canvas")?.offsetTop || 0),
+    }));
     const box = (await cards.first().boundingBox())!;
     // Drag a selected object without changing away from the Pencil tool.
     await page.getByRole("button", { name: "Draw", exact: true }).click();
@@ -295,9 +300,14 @@ test("iPad lasso selects a group and drags it without scrolling or opening detai
     expect(after[0] - before[0]).toBeCloseTo(40, 0);
     expect(after[1] - before[1]).toBeCloseTo(40, 0);
     expect(
-      await page
-        .locator(".canvas-viewport")
-        .evaluate((el) => ({ x: el.scrollLeft, y: el.scrollTop })),
+      await page.locator(".canvas-viewport").evaluate((el) => ({
+        x:
+          el.scrollLeft -
+          (el.querySelector<HTMLElement>(".canvas")?.offsetLeft || 0),
+        y:
+          el.scrollTop -
+          (el.querySelector<HTMLElement>(".canvas")?.offsetTop || 0),
+      })),
     ).toEqual(scroll);
     await expect(page.getByTestId("drawing")).toHaveCount(0);
     await page.getByRole("button", { name: "Undo", exact: true }).click();
@@ -417,10 +427,14 @@ test("Safari keyboard resize and offset keep the composer and modal in the visib
     await page.evaluate(() => {
       const v = (window as any).__viewport;
       v.height = 768;
-      v.offsetTop = 0;
+      v.offsetTop = 84;
       v.dispatchEvent(new Event("resize"));
     });
     await expect(page.locator(".app")).toHaveCSS("height", "768px");
+    // Safari may keep the old offset after Done even while the field stays focused.
+    await expect(page.locator(".app")).toHaveCSS("top", "0px");
+    expect((await page.locator(".app").boundingBox())!.y).toBe(0);
+    expect(await page.evaluate(() => scrollY)).toBe(0);
   } finally {
     await context.close();
   }
@@ -446,8 +460,8 @@ test("iPad touch selects, drags through captured viewport events, double-taps to
     await expect(card).toHaveClass(/selected/);
     await expect(page.getByLabel("Edit phrase in place")).toHaveCount(0);
     const scroll = await area.evaluate((el) => ({
-      x: el.scrollLeft,
-      y: el.scrollTop,
+      x: el.scrollLeft - el.querySelector<HTMLElement>(".canvas")!.offsetLeft,
+      y: el.scrollTop - el.querySelector<HTMLElement>(".canvas")!.offsetTop,
     }));
     const left = await card.evaluate((el) =>
       parseFloat((el as HTMLElement).style.left),
@@ -482,7 +496,14 @@ test("iPad touch selects, drags through captured viewport events, double-taps to
       await card.evaluate((el) => parseFloat((el as HTMLElement).style.left)),
     ).toBeCloseTo(left + 60, 0);
     expect(
-      await area.evaluate((el) => ({ x: el.scrollLeft, y: el.scrollTop })),
+      await area.evaluate((el) => ({
+        x:
+          el.scrollLeft -
+          (el.querySelector<HTMLElement>(".canvas")?.offsetLeft || 0),
+        y:
+          el.scrollTop -
+          (el.querySelector<HTMLElement>(".canvas")?.offsetTop || 0),
+      })),
     ).toEqual(scroll);
     await expect(page.getByTestId("drawing")).toHaveCount(0);
     box = (await card.boundingBox())!;
@@ -547,6 +568,89 @@ test("iPad pan glides after release and a new touch stops the glide", async () =
     await page.waitForTimeout(120);
     expect(await area.evaluate((el) => el.scrollLeft)).toBe(stopped);
     await pointer(page, "pointerup", 1, x - 65, y);
+  } finally {
+    await context.close();
+  }
+});
+
+test("iPad elastic edges show the surrounding desk, resist long pulls and settle after release", async () => {
+  const { page, context } = await tablet();
+  try {
+    await page.goto(
+      `/#room=${"7".repeat(48)}&relay=${encodeURIComponent(`ws://127.0.0.1:${relay.port}`)}`,
+    );
+    await page.getByRole("button", { name: "Draw", exact: true }).click();
+    const area = page.locator(".canvas-viewport");
+    await area.evaluate((el) => {
+      const canvas = el.querySelector<HTMLElement>(".canvas")!;
+      el.scrollLeft = canvas.offsetLeft;
+      el.scrollTop = canvas.offsetTop;
+    });
+    const box = (await area.boundingBox())!,
+      x = box.x + 160,
+      y = box.y + 170;
+    await pointer(page, "pointerdown", 1, x, y);
+    await pointer(page, "pointermove", 1, x + 100, y);
+    await expect
+      .poll(
+        async () => (await page.locator(".canvas").boundingBox())!.x - box.x,
+      )
+      .toBeGreaterThan(20);
+    const first = (await page.locator(".canvas").boundingBox())!.x - box.x;
+    await pointer(page, "pointermove", 1, x + 700, y);
+    await page.waitForTimeout(40);
+    const farther = (await page.locator(".canvas").boundingBox())!.x - box.x;
+    expect(farther).toBeGreaterThan(first);
+    expect(farther - first).toBeLessThan(150);
+    expect(farther).toBeLessThan(box.width * 0.31);
+    await pointer(page, "pointerup", 1, x + 700, y);
+    await expect
+      .poll(async () =>
+        Math.abs(
+          await area.evaluate(
+            (el) =>
+              el.scrollLeft -
+              el.querySelector<HTMLElement>(".canvas")!.offsetLeft,
+          ),
+        ),
+      )
+      .toBeLessThan(1);
+    await expect(area).toHaveCSS("background-color", "rgb(233, 237, 243)");
+  } finally {
+    await context.close();
+  }
+});
+
+test("iPad language choice sits beside the field and produces complete role-specific cards", async () => {
+  const { page, context } = await tablet();
+  try {
+    await page.goto(
+      `/#room=${"6".repeat(48)}&relay=${encodeURIComponent(`ws://127.0.0.1:${relay.port}`)}`,
+    );
+    await page.getByLabel("Your lesson view").selectOption("teacher");
+    const selector = page.getByLabel("Input language"),
+      input = page.getByLabel("Cantonese phrase");
+    const left = (await selector.boundingBox())!,
+      field = (await input.boundingBox())!;
+    expect(left.x + left.width).toBeLessThan(field.x);
+    expect(Math.abs(left.y - field.y)).toBeLessThan(8);
+    for (const [language, text] of [
+      ["english", "Hello"],
+      ["jyutping", "nei5 hou2"],
+    ]) {
+      await selector.selectOption(language);
+      await input.fill(text);
+      await page
+        .getByRole("button", { name: "Add phrase", exact: true })
+        .click();
+    }
+    const cards = page.getByTestId("phrase-card");
+    await expect(cards).toHaveCount(2);
+    await expect(cards.first().locator("h2")).toHaveText("你好");
+    await expect(cards.first().locator(".card-english")).toHaveText("Hello.");
+    await page.getByLabel("Your lesson view").selectOption("learner");
+    await expect(cards.first().locator("h2")).toHaveText("nei5 hou2");
+    await expect(cards.first().locator(".card-secondary")).toHaveText("你好");
   } finally {
     await context.close();
   }

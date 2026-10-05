@@ -3,6 +3,14 @@ declare global {
   interface Window {
     desktop?: {
       web?: boolean;
+      updates?: {
+        get: () => Promise<import("./updateState").UpdateState>;
+        check: () => Promise<import("./updateState").UpdateState>;
+        enabled: (
+          value: boolean,
+        ) => Promise<import("./updateState").UpdateState>;
+        install: () => Promise<boolean>;
+      };
       copyText?: (text: string) => Promise<boolean>;
       vocabulary: () => Promise<{
         known: string[];
@@ -30,6 +38,15 @@ declare global {
       host: () => Promise<{ local: string; addresses: string[] }>;
       hostRemote: () => Promise<{ url: string }>;
       stopRemote: () => Promise<boolean>;
+      analyze?: (
+        text: string,
+        language: "chinese" | "jyutping" | "english",
+      ) => Promise<{
+        chinese: string;
+        jyutping: string;
+        definition: string;
+        words: { chinese: string; jyutping: string; definition: string }[];
+      }>;
       translate: (text: string) => Promise<string>;
       send: (payload: unknown) => Promise<unknown>;
       microphone: () => Promise<boolean>;

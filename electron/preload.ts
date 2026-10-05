@@ -1,5 +1,12 @@
 import { contextBridge, ipcRenderer } from "electron";
 contextBridge.exposeInMainWorld("desktop", {
+  updates: {
+    get: () => ipcRenderer.invoke("updates:get"),
+    check: () => ipcRenderer.invoke("updates:check"),
+    enabled: (enabled: boolean) =>
+      ipcRenderer.invoke("updates:enabled", enabled),
+    install: () => ipcRenderer.invoke("updates:install"),
+  },
   copyText: (text: string) => ipcRenderer.invoke("clipboard:write", text),
   vocabulary: () => ipcRenderer.invoke("board:vocabulary"),
   transcribe: (audio: string) => ipcRenderer.invoke("board:transcribe", audio),
@@ -10,6 +17,8 @@ contextBridge.exposeInMainWorld("desktop", {
   host: () => ipcRenderer.invoke("relay:start"),
   hostRemote: () => ipcRenderer.invoke("remote:start"),
   stopRemote: () => ipcRenderer.invoke("remote:stop"),
+  analyze: (text: string, language: string) =>
+    ipcRenderer.invoke("board:analyze", text, language),
   translate: (text: string) => ipcRenderer.invoke("translate", text),
   send: (payload: unknown) => ipcRenderer.invoke("queue:send", payload),
   microphone: () => ipcRenderer.invoke("microphone"),
