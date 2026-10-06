@@ -3326,7 +3326,7 @@ summary > svg,
   box-shadow: 0 8px 28px #23314b18;
   z-index: 30;
 }
-.toolbar {
+.canvas-actions {
   container-type: inline-size;
   container-name: canvas-tools;
 }
@@ -3336,92 +3336,6 @@ summary > svg,
     align-items: center;
     gap: 2px;
   }
-}
-.lesson-entry {
-  display: flex;
-  align-items: center;
-  position: relative;
-  border-radius: 8px;
-}
-.history .lesson-entry.current {
-  background: #eee9fa;
-}
-.history .lesson-open {
-  flex: 1;
-  min-width: 0;
-  background: transparent;
-}
-.lesson-menu {
-  margin-right: 6px;
-}
-.lesson-menu summary {
-  padding: 3px 6px;
-  cursor: pointer;
-  list-style: none;
-}
-.lesson-menu > div {
-  position: absolute;
-  left: 8px;
-  top: 30px;
-  width: 180px;
-  padding: 10px;
-  background: #fff;
-  border: 1px solid #dfe4ee;
-  border-radius: 10px;
-  z-index: 40;
-  box-shadow: 0 6px 20px #23314b1a;
-}
-.lesson-menu label {
-  font-size: 11px;
-}
-.lesson-menu select {
-  width: 100%;
-  margin: 5px 0;
-}
-.lesson-menu > div button {
-  display: flex;
-  gap: 5px;
-  padding: 7px 0;
-  font-size: 11px;
-}
-.new-folder,
-.restore-lesson {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin: 4px 0 9px;
-  font-size: 11px;
-  color: #69748b;
-}
-.folder-heading {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  font-size: 11px;
-  color: #65718b;
-  margin: 14px 4px 4px;
-}
-.lesson-library form {
-  display: flex;
-  gap: 3px;
-}
-.lesson-library form input {
-  width: 115px;
-  min-width: 0;
-}
-.dialogue-mic-line {
-  display: flex;
-  margin-top: 3px;
-}
-.dialogue-mic-line .push-to-talk button {
-  padding: 3px 5px;
-  font-size: 10px;
-  background: transparent;
-  color: #7a879a;
-}
-.dialogue-mic-line .push-to-talk svg {
-  width: 13px;
-  height: 13px;
 }
 .editable-table-language {
   position: relative;
@@ -3438,4 +3352,145 @@ summary > svg,
 }
 .editable-table-language:focus-within > span {
   display: none;
+}
+/* Canvas hints never participate in layout or alter the camera. */
+.tool-hint,
+.follow-banner {
+  position: absolute;
+  top: calc(var(--canvas-content-top, 100px) + 8px);
+  left: 12px;
+  right: auto;
+  max-width: calc(100% - 24px);
+  z-index: 26;
+  border: 1px solid #e0e7f2;
+  border-radius: 10px;
+  box-shadow: 0 4px 16px #24324a12;
+}
+.welcome {
+  user-select: none;
+}
+.welcome .welcome-close {
+  position: absolute;
+  right: 12px;
+  top: 12px;
+  display: grid;
+  place-items: center;
+  padding: 4px;
+  color: #8994a7;
+}
+.note-placeholder {
+  color: #8893a6;
+}
+/* Input overlays preserve the exact font, word colours, line wraps and dimensions. */
+.inline-language {
+  display: block;
+  position: relative;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  min-height: 1.4em;
+  line-height: inherit;
+}
+.inline-language .language-caret {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  outline: 0;
+  border-radius: 0;
+  box-shadow: none;
+  background: transparent;
+  color: transparent !important;
+  -webkit-text-fill-color: transparent;
+  caret-color: #253655;
+  font: inherit;
+  line-height: inherit;
+  letter-spacing: inherit;
+  resize: none;
+  overflow: hidden;
+  field-sizing: fixed;
+  cursor: text !important;
+}
+.inline-language .language-caret::placeholder {
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+}
+.language-placeholder {
+  color: #8a95a8;
+}
+.phrase-card input.card-english {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+  border: 0;
+  border-radius: 0;
+  outline: 0;
+  box-shadow: none;
+  background: transparent;
+  padding: 3px 0 0;
+  margin: 0;
+  color: #3d4761;
+  font-family: inherit;
+  font-size: calc(12px * var(--text-scale, 1));
+  font-weight: 400;
+  line-height: 1.5;
+}
+.dialogue-language-line {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+}
+.dialogue-language-line .inline-language {
+  flex: 1;
+  min-width: 0;
+  font-size: 19px;
+  line-height: 1.45;
+}
+.dialogue-audio-control {
+  flex: 0 0 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.dialogue-audio-control button {
+  display: grid;
+  place-items: center;
+  border: 0;
+  background: transparent;
+  padding: 4px;
+  color: #536d94;
+  min-height: 26px;
+}
+.dialogue-audio-control .push-to-talk {
+  margin: 0;
+}
+.table-title .table-drag-handle {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  padding: 4px;
+  border: 0;
+  background: transparent;
+  color: #8a99af;
+  cursor: grab !important;
+  touch-action: none;
+}
+.table-title .table-drag-handle svg {
+  display: block;
+}
+.table-card,
+.table-card.selected {
+  background: var(--card-fill, transparent) !important;
+  border-radius: 12px;
+}
+
+.note-card .in-place-note {
+  font-size: calc(16px * var(--text-scale, 1));
+  line-height: 1.55;
+  color: #443925;
 }

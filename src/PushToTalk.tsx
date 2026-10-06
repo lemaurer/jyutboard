@@ -6,9 +6,11 @@ type Phase = "idle" | "starting" | "recording" | "transcribing";
 export function PushToTalk({
   onPhrase,
   notify,
+  iconOnly = false,
 }: {
   onPhrase: (text: string, audio: string) => void;
   notify: (text: string) => void;
+  iconOnly?: boolean;
 }) {
   const [state, setState] = useState<Phase>("idle"),
     [saved, setSaved] = useState("");
@@ -207,15 +209,17 @@ export function PushToTalk({
             release();
           }
         }}
+        data-phase={state}
       >
         {state === "recording" ? <Square size={15} /> : <Mic size={17} />}
-        {state === "recording"
-          ? "Recording · click to stop"
-          : state === "transcribing"
-            ? "Transcribing…"
-            : state === "starting"
-              ? "Opening mic…"
-              : "Speak"}
+        {!iconOnly &&
+          (state === "recording"
+            ? "Recording · click to stop"
+            : state === "transcribing"
+              ? "Transcribing…"
+              : state === "starting"
+                ? "Opening mic…"
+                : "Speak")}
       </button>
       {saved && state === "idle" && (
         <>

@@ -677,10 +677,10 @@ test("iPad language choice sits beside the field and produces complete role-spec
     const cards = page.getByTestId("phrase-card");
     await expect(cards).toHaveCount(2);
     await expect(cards.first().locator("h2")).toHaveText("你好");
-    await expect(cards.first().locator(".card-english")).toHaveText("Hello");
+    await expect(cards.first().locator(".card-english")).toHaveValue("Hello");
     await page.getByLabel("Your lesson view").selectOption("learner");
     await expect(cards.first().locator("h2")).toHaveText("nei5 hou2");
-    await expect(cards.first().locator(".card-secondary")).toHaveText("你好");
+    await expect(cards.first().locator(".card-secondary")).toHaveCount(0);
   } finally {
     await context.close();
   }

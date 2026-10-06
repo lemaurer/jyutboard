@@ -1,3 +1,8 @@
+import { InlineLanguage } from "./InlineLanguage";
+import {
+  type HighlightMode,
+  type VocabularySnapshot,
+} from "./VocabularyPhrase";
 import { PushToTalk } from "./PushToTalk";
 import type { SourceLanguage, Card, TableRow } from "./model";
 import { PersonAvatar, PERSONAS, AVATARS } from "./PersonAvatar";
@@ -5,6 +10,9 @@ import { Plus, Star, X, MoreHorizontal, Volume2 } from "lucide-react";
 export function Conversation({
   card,
   teacher,
+  vocabulary,
+  highlightMode,
+  selectedRow,
   hidden,
   onChange,
   onChinese,
@@ -17,6 +25,9 @@ export function Conversation({
 }: {
   card: Card;
   teacher: boolean;
+  vocabulary?: VocabularySnapshot;
+  highlightMode: HighlightMode;
+  selectedRow: string | null;
   hidden: boolean;
   onChange: (row: TableRow, patch: Partial<TableRow>) => void;
   onChinese: (row: TableRow, text: string) => void;
@@ -32,6 +43,8 @@ export function Conversation({
       {card.rows.map((row, index) => {
         const mode = row.mode ?? card.mode;
         const showEnglish = mode !== "practice";
+        const avatar =
+          AVATARS.find((avatar) => avatar.id === row.avatar) ?? AVATARS[0];
         const custom = !PERSONAS.some((p) => p.name === row.persona);
         return (
           <div
@@ -97,28 +110,51 @@ export function Conversation({
                 </select>
               </div>
             </div>
-            <div className={`dialogue-bubble bubble-mode-${mode}`}>
-              <textarea
-                aria-label={
-                  teacher || mode === "characters"
-                    ? "Dialogue Cantonese"
-                    : "Dialogue Jyutping"
-                }
-                placeholder={teacher ? "寫句中文…" : "Write Jyutping…"}
-                value={
-                  teacher || mode === "characters" ? row.chinese : row.jyutping
-                }
-                maxLength={2000}
-                onChange={(e) =>
-                  teacher || mode === "characters"
-                    ? onChinese(row, e.target.value)
-                    : onChange(row, { jyutping: e.target.value })
-                }
-                onBlur={(event) => onComplete(row, event.currentTarget.value)}
-              />
-              {!teacher && mode === "full" && row.chinese && (
-                <p className="card-secondary">{row.chinese}</p>
-              )}
+            <div
+              className={`dialogue-bubble bubble-mode-${mode}`}
+              style={{ backgroundColor: avatar.bg, borderColor: avatar.shirt }}
+            >
+              <div className="dialogue-language-line">
+                <InlineLanguage
+                  label={teacher ? "Dialogue Cantonese" : "Dialogue Jyutping"}
+                  placeholder={teacher ? "寫句中文…" : "Write Jyutping…"}
+                  value={teacher ? row.chinese : row.jyutping}
+                  words={row.words}
+                  chinese={teacher}
+                  snapshot={vocabulary}
+                  mode={highlightMode}
+                  selected={selectedRow === row.id}
+                  onChange={(text) =>
+                    teacher
+                      ? onChinese(row, text)
+                      : onChange(row, { jyutping: text })
+                  }
+                  onBlur={(text) => onComplete(row, text)}
+                />
+                {teacher && (
+                  <div className="dialogue-audio-control">
+                    {row.audio ? (
+                      <button
+                        type="button"
+                        aria-label="Play bubble recording"
+                        onClick={() =>
+                          void new Audio(row.audio)
+                            .play()
+                            .catch(() => notify("Could not play recording."))
+                        }
+                      >
+                        <Volume2 size={16} />
+                      </button>
+                    ) : (
+                      <PushToTalk
+                        iconOnly
+                        onPhrase={(text, audio) => onSpeech(row, text, audio)}
+                        notify={notify}
+                      />
+                    )}
+                  </div>
+                )}
+              </div>
               {showEnglish && (
                 <input
                   className={mode === "peek" ? "bubble-peek-meaning" : ""}
@@ -144,12 +180,6 @@ export function Conversation({
                   }
                 />
               )}
-              <div className="dialogue-mic-line">
-                <PushToTalk
-                  onPhrase={(text, audio) => onSpeech(row, text, audio)}
-                  notify={notify}
-                />
-              </div>
               <button
                 className={`bubble-star ${row.starred ? "is-starred" : ""}`}
                 aria-label={row.starred ? "Unsave bubble" : "Save bubble"}
@@ -157,18 +187,6 @@ export function Conversation({
               >
                 <Star size={13} fill={row.starred ? "currentColor" : "none"} />
               </button>
-              {row.audio && (
-                <button
-                  type="button"
-                  className="bubble-audio"
-                  aria-label="Play bubble recording"
-                  onClick={() =>
-                    void new Audio(row.audio).play().catch(() => {})
-                  }
-                >
-                  <Volume2 size={13} />
-                </button>
-              )}
               <details className="bubble-menu">
                 <summary aria-label="Bubble options">
                   <MoreHorizontal size={14} />

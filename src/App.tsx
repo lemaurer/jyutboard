@@ -1,4 +1,4 @@
-import { LessonLibrary } from "./LessonLibrary";
+import { InlineLanguage } from "./InlineLanguage";
 import { CardBorder } from "./CardBorder";
 import { phraseInput, inputLanguage } from "./phraseInput";
 import { ZoomMotion } from "./ZoomMotion";
@@ -250,6 +250,7 @@ export default function App() {
     "Not connected to JyutDeck yet",
   );
   const [now, setNow] = useState(Date.now());
+  const [welcomeClosed, setWelcomeClosed] = useState(false);
   const [editingCard, setEditingCard] = useState<string | null>(null);
   const [paired, setPaired] = useState<{
     room?: string;
@@ -477,9 +478,9 @@ export default function App() {
           target.closest<SVGElement>("[data-stroke-id]")?.dataset.strokeId;
         return Boolean(
           id &&
-            (event.pointerType === "touch" ||
-              navigationRef.current.selectedItems.has(id)) &&
-            !["laser", "erase"].includes(toolRef.current),
+          (event.pointerType === "touch" ||
+            navigationRef.current.selectedItems.has(id)) &&
+          !["laser", "erase"].includes(toolRef.current),
         );
       },
       undefined,
@@ -522,6 +523,11 @@ export default function App() {
       if (camera.current) flushCamera(true);
       else layoutCanvas(zoomRef.current);
       const bounds = node.getBoundingClientRect();
+      const column = node.closest(".canvas-column")?.getBoundingClientRect();
+      document.documentElement.style.setProperty(
+        "--canvas-content-top",
+        `${bounds.top - (column?.top ?? 0)}px`,
+      );
       document.documentElement.style.setProperty(
         "--details-top",
         `${bounds.top}px`,
@@ -1174,11 +1180,14 @@ export default function App() {
     setEditingCard(card.id);
     setTool("select");
   }
+  function learnerText(text: string) {
+    return /\p{Script=Han}/u.test(text) ? analyzeLocal(text).jyutping : text;
+  }
   function addNote(location = newCardPosition()) {
     if (!doc) return;
     const card = createCard({
       kind: "note",
-      definition: "A little note…",
+      definition: "",
       shape: "sticky",
       x: clamp(location[0], 0, BOARD_WIDTH - 300),
       y: clamp(location[1], 0, BOARD_HEIGHT - 300),
@@ -1187,6 +1196,7 @@ export default function App() {
     addCard(doc, card);
     lesson.stopCapturing();
     selectCard(card.id);
+    setEditingCard(card.id);
     setTool("select");
   }
   function addTable(location = newCardPosition()) {
@@ -1748,14 +1758,19 @@ export default function App() {
     if (teacher)
       patchCard(doc, card.id, {
         chinese: text,
-        ...analyzeLocal(text),
+        jyutping: analyzeLocal(text).jyutping,
+        words: analyzeLocal(text).words,
         translation: "local",
       });
     else if (card.sourceLanguage === "english")
       patchCard(doc, card.id, { definition: text, translation: "edited" });
     else patchCard(doc, card.id, { jyutping: text });
   }
-  async function completePhrase(card: Card, text: string) {
+  async function completePhrase(
+    card: Card,
+    text: string,
+    language?: SourceLanguage,
+  ) {
     if (!doc || !text.trim()) return;
     const document = doc,
       revision = ++translationSequence.current;
@@ -1764,7 +1779,7 @@ export default function App() {
     const original = document.getMap<Y.Map<unknown>>("cards").get(card.id);
     const snapshot = fields.map((field) => original?.get(field));
     try {
-      const analyzed = await phraseInput(text);
+      const analyzed = await phraseInput(text, language);
       const current = document.getMap<Y.Map<unknown>>("cards").get(card.id);
       if (
         !current ||
@@ -1781,7 +1796,7 @@ export default function App() {
         sourceLanguage: "chinese",
         receipt: "",
       });
-      if (inputLanguage(text) === "chinese")
+      if (inputLanguage(text, language) === "chinese")
         void enrichPhrase(document, { ...card, ...analyzed });
     } catch (error) {
       notify(errorText(error));
@@ -2483,22 +2498,18 @@ export default function App() {
           >
             <Plus size={15} /> New lesson
           </button>
-          <LessonLibrary
-            lessons={history}
-            current={session.id}
-            onOpen={switchSession}
-            onChange={setHistory}
-            onDelete={(id) => {
-              if (id === session.id)
-                switchSession(
-                  history.find((item) => item.id !== id) ?? {
-                    id: newRoom(),
-                    title: "New lesson",
-                    created: Date.now(),
-                  },
-                );
-            }}
-          />
+          <div className="history">
+            {history.map((item, index) => (
+              <button
+                className={`lesson-open ${item.id === session.id ? "current" : ""}`}
+                key={item.id}
+                onClick={() => switchSession(item)}
+              >
+                <span>{index + 1}.</span>
+                <strong>{item.title}</strong>
+              </button>
+            ))}
+          </div>
           {tablet && (
             <button className="new-session" onClick={() => setSharing(true)}>
               <Users size={15} />
@@ -3161,10 +3172,12 @@ export default function App() {
                     }
                     clearSelection();
                     if (tool === "phrase") {
+                      event.preventDefault();
                       addBlankPhrase(location);
                       return;
                     }
                     if (tool === "note") {
+                      event.preventDefault();
                       addNote(location);
                       return;
                     }
@@ -3340,19 +3353,32 @@ export default function App() {
                       }}
                     />
                   )}
-                  {!cards.length && (
-                    <div className="welcome">
-                      <span className="welcome-icon">粵</span>
-                      <h1>Let’s make a lesson.</h1>
-                      <p>
-                        Write a phrase, add a table, or sketch something
-                        together. Natasha sees Chinese; Leif sees Jyutping.
-                      </p>
-                      <button onClick={sample} disabled={!doc}>
-                        Try a few phrases <ArrowRight size={15} />
-                      </button>
-                    </div>
-                  )}
+                  {!cards.length &&
+                    !strokes.length &&
+                    !welcomeClosed &&
+                    ["select", "pan"].includes(tool) && (
+                      <div
+                        className="welcome"
+                        onPointerDown={(event) => event.stopPropagation()}
+                      >
+                        <button
+                          className="welcome-close"
+                          aria-label="Close welcome"
+                          onClick={() => setWelcomeClosed(true)}
+                        >
+                          <X size={16} />
+                        </button>
+                        <span className="welcome-icon">粵</span>
+                        <h1>Let’s make a lesson.</h1>
+                        <p>
+                          Write a phrase, add a table, or sketch something
+                          together. Natasha sees Chinese; Leif sees Jyutping.
+                        </p>
+                        <button onClick={sample} disabled={!doc}>
+                          Try a few phrases <ArrowRight size={15} />
+                        </button>
+                      </div>
+                    )}
                   {cards.map((card, index) =>
                     card.kind === "conversation" ? (
                       <article
@@ -3375,7 +3401,9 @@ export default function App() {
                         <input
                           className="conversation-title"
                           aria-label="Conversation title"
-                          value={card.chinese}
+                          value={
+                            teacher ? card.chinese : learnerText(card.chinese)
+                          }
                           onChange={(e) =>
                             doc &&
                             patchCard(doc, card.id, { chinese: e.target.value })
@@ -3384,6 +3412,11 @@ export default function App() {
                         <Conversation
                           card={card}
                           teacher={teacher}
+                          vocabulary={vocabulary}
+                          highlightMode={highlightMode}
+                          selectedRow={
+                            selected === card.id ? selectedRow : null
+                          }
                           hidden={englishHidden(card, teacher)}
                           onChange={(row, patch) =>
                             doc && patchTableRow(doc, card.id, row.id, patch)
@@ -3446,6 +3479,19 @@ export default function App() {
                           className="table-title"
                           onPointerDown={(event) => startDrag(event, card)}
                         >
+                          <button
+                            className="table-drag-handle"
+                            aria-label="Move table"
+                            title="Drag to move table"
+                            onPointerDown={(event) => {
+                              event.stopPropagation();
+                              selectCard(card.id);
+                              beginDrag(event, new Set([card.id]));
+                              board.current?.setPointerCapture(event.pointerId);
+                            }}
+                          >
+                            <Grip size={16} />
+                          </button>
                           <Table2 size={18} />
                           {teacher ? (
                             <input
@@ -3461,7 +3507,7 @@ export default function App() {
                               onClick={(event) => event.stopPropagation()}
                             />
                           ) : (
-                            <strong>{card.chinese}</strong>
+                            <strong>{learnerText(card.chinese)}</strong>
                           )}
                         </div>
                         <CanvasTable
@@ -3584,7 +3630,12 @@ export default function App() {
                               autoFocus
                               className="note-text in-place-note"
                               aria-label="Edit note in place"
-                              value={card.definition}
+                              placeholder="A little note…"
+                              value={
+                                teacher
+                                  ? card.definition
+                                  : learnerText(card.definition)
+                              }
                               maxLength={4000}
                               onClick={(e) => e.stopPropagation()}
                               onChange={(e) =>
@@ -3607,100 +3658,84 @@ export default function App() {
                                 setEditingCard(card.id);
                               }}
                             >
-                              {card.definition}
+                              {(teacher
+                                ? card.definition
+                                : learnerText(card.definition)) || (
+                                <span className="note-placeholder">
+                                  A little note…
+                                </span>
+                              )}
                             </div>
                           )
                         ) : (
                           <>
-                            {editingCard === card.id ? (
-                              <textarea
-                                autoFocus
-                                aria-label="Edit phrase in place"
-                                className="in-place-phrase"
+                            <h2
+                              className={
+                                teacher ? "card-chinese" : "card-jyutping"
+                              }
+                              title="Double-click to edit"
+                              onDoubleClick={(event) => {
+                                event.stopPropagation();
+                                setEditingCard(card.id);
+                              }}
+                            >
+                              <InlineLanguage
+                                value={teacher ? card.chinese : card.jyutping}
                                 placeholder={
-                                  teacher ? "寫句中文…" : "Write Jyutping…"
+                                  teacher ? "Write Chinese…" : "Add Jyutping…"
                                 }
-                                value={
-                                  teacher
-                                    ? card.chinese
-                                    : card.sourceLanguage === "english"
-                                      ? card.definition
-                                      : card.jyutping
+                                label="Edit phrase in place"
+                                words={card.words}
+                                chinese={teacher}
+                                snapshot={vocabulary}
+                                mode={highlightMode}
+                                selected={selectedItems.has(card.id)}
+                                recent={now - card.created < 5000}
+                                editing={editingCard === card.id}
+                                autoFocus
+                                onChange={(text) =>
+                                  editPhraseInPlace(card, text)
                                 }
-                                onClick={(e) => e.stopPropagation()}
-                                onChange={(e) =>
-                                  editPhraseInPlace(card, e.target.value)
-                                }
-                                onBlur={(event) => {
+                                onBlur={(text) => {
                                   setEditingCard(null);
-                                  void completePhrase(
-                                    card,
-                                    event.currentTarget.value,
-                                  );
-                                }}
-                                onKeyDown={(e) => {
-                                  if (
-                                    e.key === "Enter" &&
-                                    !e.shiftKey &&
-                                    !e.nativeEvent.isComposing
-                                  ) {
-                                    e.preventDefault();
-                                    e.currentTarget.blur();
-                                  }
-                                  if (e.key === "Escape")
-                                    e.currentTarget.blur();
+                                  void completePhrase(card, text);
                                 }}
                               />
-                            ) : (
-                              <h2
-                                className={
-                                  teacher || card.mode === "characters"
-                                    ? "card-chinese"
-                                    : "card-jyutping"
+                            </h2>
+                            {card.mode === "full" && (
+                              <input
+                                className="card-english"
+                                aria-label="Phrase translation"
+                                placeholder="Meaning…"
+                                value={card.definition}
+                                onPointerDown={(event) =>
+                                  event.stopPropagation()
                                 }
-                                title="Double-click to edit"
-                                onDoubleClick={(event) => {
-                                  event.stopPropagation();
-                                  setEditingCard(card.id);
+                                onClick={(event) => event.stopPropagation()}
+                                onFocus={(event) => {
+                                  event.currentTarget.dataset.original =
+                                    event.currentTarget.value;
                                 }}
-                              >
-                                <VocabularyPhrase
-                                  text={
-                                    card.mode === "characters"
-                                      ? card.chinese ||
-                                        card.jyutping ||
-                                        card.definition
-                                      : teacher
-                                        ? card.chinese ||
-                                          card.jyutping ||
-                                          card.definition ||
-                                          "Write Chinese…"
-                                        : card.jyutping ||
-                                          (englishHidden(card, teacher)
-                                            ? "Add Jyutping…"
-                                            : card.definition ||
-                                              card.chinese ||
-                                              "Add Jyutping…")
-                                  }
-                                  words={card.words}
-                                  chinese={
-                                    teacher || card.mode === "characters"
-                                  }
-                                  snapshot={vocabulary}
-                                  mode={highlightMode}
-                                  selected={selectedItems.has(card.id)}
-                                  recent={now - card.created < 5000}
-                                />
-                              </h2>
+                                onChange={(event) =>
+                                  doc &&
+                                  patchCard(doc, card.id, {
+                                    definition: event.target.value,
+                                    translation: "edited",
+                                  })
+                                }
+                                onBlur={(event) => {
+                                  if (
+                                    event.currentTarget.value !==
+                                    event.currentTarget.dataset.original
+                                  )
+                                    void completePhrase(
+                                      card,
+                                      event.currentTarget.value,
+                                      "english",
+                                    );
+                                }}
+                              />
                             )}
-                            {!englishHidden(card, teacher) &&
-                              !["peek", "characters"].includes(card.mode) &&
-                              Boolean(card.chinese || card.jyutping) &&
-                              Boolean(card.definition) && (
-                                <p className="card-english">
-                                  {card.definition}
-                                </p>
-                              )}
                             {["peek", "characters"].includes(card.mode) &&
                               !englishHidden(card, teacher) && (
                                 <div
@@ -3715,13 +3750,10 @@ export default function App() {
                                 </div>
                               )}
                             {card.mode === "full" && card.note && (
-                              <p className="card-note">{card.note}</p>
+                              <p className="card-note">
+                                {teacher ? card.note : learnerText(card.note)}
+                              </p>
                             )}
-                            {card.mode === "full" &&
-                              !teacher &&
-                              card.chinese && (
-                                <p className="card-secondary">{card.chinese}</p>
-                              )}
                             <div className="card-footer">
                               {card.audio && (
                                 <button
@@ -4310,7 +4342,7 @@ export default function App() {
                               }
                             />
                           </label>
-                          {active.kind === "conversation" && (
+                          {active.kind === "conversation" && teacher && (
                             <AudioRecorder
                               audio={activeRow.audio}
                               onAudio={(audio, audioName) =>
@@ -4463,9 +4495,13 @@ export default function App() {
                       </label>
                     </>
                   )}
-                  {active.kind === "phrase" && (
+                  {["phrase", "table"].includes(active.kind) && (
                     <div className="appearance">
-                      <h3>Card appearance</h3>
+                      <h3>
+                        {active.kind === "table"
+                          ? "Table appearance"
+                          : "Card appearance"}
+                      </h3>
                       <CardBorder
                         card={active}
                         onChange={(patch) =>
@@ -4496,7 +4532,7 @@ export default function App() {
                         ))}
                       </div>
                       <p className="small-copy">
-                        Choose how this phrase appears in the shared lesson.
+                        Choose how this item appears in the shared lesson.
                       </p>
                       <div className="option-label">Mode</div>
                       <div className="choice-grid">
@@ -4525,25 +4561,31 @@ export default function App() {
                           </button>
                         ))}
                       </div>
-                      <div className="option-label">Shape</div>
-                      <div className="shape-choices">
-                        {(
-                          [
-                            ["rounded", "Simple phrase"],
-                            ["bubble", "Speech bubble"],
-                          ] as [CardShape, string][]
-                        ).map(([shape, label]) => (
-                          <button
-                            key={shape}
-                            className={active.shape === shape ? "chosen" : ""}
-                            onClick={() =>
-                              doc && patchCard(doc, active.id, { shape })
-                            }
-                          >
-                            {label}
-                          </button>
-                        ))}
-                      </div>
+                      {active.kind === "phrase" && (
+                        <>
+                          <div className="option-label">Shape</div>
+                          <div className="shape-choices">
+                            {(
+                              [
+                                ["rounded", "Simple phrase"],
+                                ["bubble", "Speech bubble"],
+                              ] as [CardShape, string][]
+                            ).map(([shape, label]) => (
+                              <button
+                                key={shape}
+                                className={
+                                  active.shape === shape ? "chosen" : ""
+                                }
+                                onClick={() =>
+                                  doc && patchCard(doc, active.id, { shape })
+                                }
+                              >
+                                {label}
+                              </button>
+                            ))}
+                          </div>
+                        </>
+                      )}
                     </div>
                   )}
                   {(active.kind === "phrase" ||

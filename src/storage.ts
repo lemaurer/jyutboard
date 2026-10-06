@@ -23,15 +23,6 @@ export function remember(value: Session) {
   localStorage.setItem(key, JSON.stringify(next));
   return next;
 }
-/** Removing a lesson only removes its library entry; its saved board remains recoverable. */
-export function forgetSession(id: string) {
-  const next = sessions().filter((value) => value.id !== id);
-  localStorage.setItem(key, JSON.stringify(next));
-  return next;
-}
-export function restoreSession(value: Session) {
-  return remember(value);
-}
 export function loadPreference(key: string, fallback: string) {
   return localStorage.getItem(`jyutboard:${key}`) || fallback;
 }

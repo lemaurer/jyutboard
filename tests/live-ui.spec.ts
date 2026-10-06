@@ -1020,11 +1020,11 @@ test("card modes share typography, release unused height, and conversation favou
   const conversation = page.getByTestId("conversation-card");
   await expect(conversation.locator(".dialogue-bubble").first()).toHaveCSS(
     "background-color",
-    "rgb(237, 245, 255)",
+    "rgb(225, 236, 250)",
   );
   await expect(conversation.locator(".dialogue-bubble").last()).toHaveCSS(
     "background-color",
-    "rgb(255, 240, 242)",
+    "rgb(249, 225, 235)",
   );
   await conversation.getByLabel("Dialogue Cantonese").first().fill("飲水");
   await conversation
@@ -1248,32 +1248,21 @@ test("content sized cards, border editing and canonical in-place English work in
   }
 });
 
-test("lesson folders persist and deletion can be undone without losing lesson contents", async ({
+test("the simple lesson sidebar keeps all existing lessons and has no folder controls", async ({
   browser,
 }) => {
   const page = await blankPage(browser, false);
   await page.getByLabel("Cantonese phrase").fill("飲水");
   await page.getByRole("button", { name: "Add phrase", exact: true }).click();
   const title = await page.locator(".lesson-open strong").first().innerText();
-  await page.getByRole("button", { name: "New folder", exact: true }).click();
-  await page.getByLabel("Folder name").fill("Food lessons");
-  await page.locator(".lesson-library form button").click();
-  await page.getByLabel(`Options for ${title}`).click();
-  await page
-    .getByLabel(`Folder for ${title}`)
-    .selectOption({ label: "Food lessons" });
-  await page.reload();
-  await expect(page.locator(".folder-heading")).toContainText("Food lessons");
-  await expect(page.getByTestId("phrase-card")).toHaveCount(1);
-  await page.getByLabel(`Options for ${title}`).click();
-  await page
-    .getByRole("button", { name: "Delete from this device", exact: true })
-    .click();
-  await expect(page.getByTestId("phrase-card")).toHaveCount(0);
-  await page
-    .getByRole("button", { name: `Restore ${title}`, exact: true })
-    .click();
+  await page.getByRole("button", { name: "New lesson", exact: true }).click();
+  await expect(page.locator(".lesson-open")).toHaveCount(2);
+  await expect(
+    page.getByRole("button", { name: "New folder", exact: true }),
+  ).toHaveCount(0);
   await page.locator(".lesson-open").filter({ hasText: title }).click();
+  await expect(page.getByTestId("phrase-card")).toHaveCount(1);
+  await page.reload();
   await expect(page.getByTestId("phrase-card")).toHaveCount(1);
 });
 
@@ -1333,7 +1322,7 @@ test("dialogue English fills Cantonese in both views and dialogue recording rema
   await turn.getByRole("button", { name: "Hold to speak Cantonese" }).click();
   await expect(
     turn.getByRole("button", { name: "Hold to speak Cantonese" }),
-  ).toContainText("Recording");
+  ).toHaveAttribute("data-phase", "recording");
   await turn.getByRole("button", { name: "Hold to speak Cantonese" }).click();
   await expect(turn.getByLabel("Dialogue Cantonese")).toHaveValue("你好");
   await expect(turn.getByLabel("Play bubble recording")).toBeVisible();
@@ -1402,4 +1391,154 @@ test("unknown English uses the same analysis service in both views and late resu
   await page.evaluate(() => (window as any).__finishAnalysis());
   await page.waitForTimeout(200);
   await expect(card.locator("h2")).toHaveText("nei5 hou2");
+});
+
+test("conversation vocabulary, avatar colours and Natasha-only inline audio stay consistent", async ({
+  browser,
+}) => {
+  const page = await blankPage(browser, false);
+  await page.evaluate(() => {
+    (window as any).desktop.getSettings = async () => ({
+      queueUrl: "https://example.test/requests",
+      hasQueueToken: false,
+      hasGoogleKey: false,
+    });
+    (window as any).desktop.vocabulary = async () => ({
+      known: ["我"],
+      queued: ["飲水"],
+      at: Date.now(),
+    });
+  });
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Close settings", exact: true })
+    .click();
+  await page.getByRole("button", { name: "Natasha", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Add conversation", exact: true })
+    .click();
+  const conversation = page.getByTestId("conversation-card"),
+    turn = conversation.locator(".dialogue-turn").first();
+  await turn.getByLabel("Dialogue Cantonese").fill("我想飲水");
+  await turn.getByLabel("Dialogue Cantonese").press("Tab");
+  await page
+    .getByRole("button", { name: "Vocabulary colours", exact: true })
+    .click();
+  await expect(turn.locator(".highlight-enabled .state-known")).toHaveText(
+    "我",
+  );
+  await expect(turn.locator(".highlight-enabled .state-queued")).toHaveText(
+    "飲水",
+  );
+  const mic = (await turn
+      .getByRole("button", { name: "Hold to speak Cantonese" })
+      .boundingBox())!,
+    text = (await turn.getByLabel("Dialogue Cantonese").boundingBox())!;
+  expect(mic.x).toBeGreaterThanOrEqual(text.x + text.width);
+  await turn.getByLabel("Choose avatar").click();
+  await turn.getByRole("button", { name: "Use Maya avatar" }).click();
+  await expect(turn.locator(".dialogue-bubble")).toHaveCSS(
+    "background-color",
+    "rgb(238, 230, 250)",
+  );
+  await page.getByRole("button", { name: "Leif", exact: true }).click();
+  await expect(conversation.locator(".card-secondary")).toHaveCount(0);
+  await expect(
+    conversation.getByRole("button", { name: "Hold to speak Cantonese" }),
+  ).toHaveCount(0);
+  await expect(turn.getByLabel("Dialogue Jyutping")).toHaveValue(
+    "ngo5 soeng2 jam2 seoi2",
+  );
+  await expect(turn.locator(".highlight-enabled .state-known")).toHaveText(
+    "ngo5",
+  );
+});
+
+test("placement hints overlay a stable canvas, welcome closes and new notes contain no prefilled text", async ({
+  browser,
+}) => {
+  const page = await blankPage(browser, false);
+  await page
+    .getByRole("button", { name: "Close welcome", exact: true })
+    .click();
+  await expect(page.locator(".welcome")).toHaveCount(0);
+  const viewport = page.locator(".canvas-viewport");
+  const before = await viewport.boundingBox();
+  await page
+    .getByRole("button", { name: "Place sticker on canvas", exact: true })
+    .click();
+  await page
+    .getByRole("button", { name: "Sticker Apple", exact: true })
+    .click();
+  await expect(page.locator(".tool-hint")).toBeVisible();
+  expect(await viewport.boundingBox()).toEqual(before);
+  await page
+    .getByRole("button", { name: "Place note on canvas", exact: true })
+    .click();
+  await viewport.click({ position: { x: 300, y: 200 } });
+  await expect(page.getByLabel("Edit note in place")).toHaveValue("");
+  await page.getByLabel("Edit note in place").fill("Remember this");
+  await page.getByLabel("Edit note in place").press("Tab");
+  await expect(page.getByTestId("phrase-card")).toContainText("Remember this");
+  expect(await page.evaluate(() => window.getSelection()?.toString())).toBe("");
+});
+
+test("table handles drag continuously and table fills and borders are editable", async ({
+  browser,
+}) => {
+  const page = await blankPage(browser);
+  await page.getByRole("button", { name: "Natasha", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Add phrase table", exact: true })
+    .click();
+  const table = page.getByTestId("table-card");
+  const before = (await table.boundingBox())!,
+    handle = (await table
+      .getByRole("button", { name: "Move table", exact: true })
+      .boundingBox())!;
+  await page.mouse.move(
+    handle.x + handle.width / 2,
+    handle.y + handle.height / 2,
+  );
+  await page.mouse.down();
+  await page.mouse.move(handle.x + 90, handle.y + 60, { steps: 8 });
+  await expect
+    .poll(async () => (await table.boundingBox())!.x)
+    .toBeGreaterThan(before.x + 60);
+  await page.mouse.up();
+  const appearance = page.locator(".appearance");
+  await appearance
+    .getByRole("button", { name: "Lavender fill", exact: true })
+    .click();
+  await appearance.getByLabel("Card border width").selectOption("2");
+  await appearance.getByLabel("Card border style").selectOption("dashed");
+  await expect(table).toHaveCSS("background-color", "rgb(241, 238, 248)");
+  await expect(table).toHaveCSS("border-width", "2px");
+  await expect(table).toHaveCSS("border-style", "dashed");
+});
+
+test("in-place phrase editing preserves geometry and colours, with editable standard meanings", async ({
+  browser,
+}) => {
+  const page = await blankPage(browser, false);
+  await page.getByLabel("Cantonese phrase").fill("你好");
+  await page.getByRole("button", { name: "Add phrase", exact: true }).click();
+  const card = page.getByTestId("phrase-card");
+  await expect(card.locator(".card-secondary")).toHaveCount(0);
+  const before = (await card.boundingBox())!,
+    colour = await card
+      .locator("h2")
+      .evaluate((node) => getComputedStyle(node).color);
+  await card.locator("h2").dblclick();
+  expect(await card.boundingBox()).toEqual(before);
+  expect(
+    await card.locator("h2").evaluate((node) => getComputedStyle(node).color),
+  ).toBe(colour);
+  await card.getByLabel("Edit phrase in place").press("Enter");
+  await card.getByLabel("Phrase translation").fill("drink water");
+  await card.getByLabel("Phrase translation").press("Tab");
+  await expect(card.locator("h2")).toHaveText("jam2 seoi2");
+  await expect(card.getByLabel("Phrase translation")).toHaveValue(
+    "drink water",
+  );
 });
