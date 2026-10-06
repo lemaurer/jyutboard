@@ -646,7 +646,9 @@ test("conversation turns translate, preserve custom personas and show Jyutping o
     .getByRole("button", { name: "Add conversation", exact: true })
     .click();
   const conversation = teacher.getByTestId("conversation-card");
+  await conversation.getByLabel("Dialogue Cantonese").first().dblclick();
   await conversation.getByLabel("Dialogue Cantonese").first().fill("你好");
+  await conversation.getByLabel("Dialogue Cantonese").nth(1).dblclick();
   await conversation.getByLabel("Dialogue Cantonese").nth(1).fill("我想飲水");
   await conversation
     .getByLabel("Dialogue person")
@@ -883,7 +885,9 @@ test("conversation bubbles have saved queue receipts, display modes and a varied
     .getByRole("button", { name: "Add conversation", exact: true })
     .click();
   const conversation = page.getByTestId("conversation-card");
+  await conversation.getByLabel("Dialogue Cantonese").first().dblclick();
   await conversation.getByLabel("Dialogue Cantonese").first().fill("飲水");
+  await conversation.getByLabel("Dialogue translation").first().dblclick();
   await conversation
     .getByLabel("Dialogue translation")
     .first()
@@ -975,6 +979,7 @@ test("the three modes also govern table meanings and individual conversation-bub
     .getByRole("button", { name: "Add conversation", exact: true })
     .click();
   const conversation = page.getByTestId("conversation-card");
+  await conversation.getByLabel("Dialogue Cantonese").first().dblclick();
   await conversation.getByLabel("Dialogue Cantonese").first().fill("你好");
   await conversation.getByLabel("Bubble options").first().click();
   await conversation.getByLabel("Bubble mode").first().selectOption("practice");
@@ -1026,6 +1031,7 @@ test("card modes share typography, release unused height, and conversation favou
     "background-color",
     "rgb(249, 225, 235)",
   );
+  await conversation.getByLabel("Dialogue Cantonese").first().dblclick();
   await conversation.getByLabel("Dialogue Cantonese").first().fill("飲水");
   await conversation
     .getByRole("button", { name: "Save bubble", exact: true })
@@ -1205,7 +1211,7 @@ test("favourite stars fit inside each phrase mode and right-hand dialogue stars 
     const turn = conversation.locator(`.turn-${side}`).first(),
       bubble = turn.locator(".dialogue-bubble"),
       star = turn.locator(".bubble-star"),
-      text = turn.locator("textarea");
+      text = turn.locator(".dialogue-language-line textarea");
     const box = (await bubble.boundingBox())!,
       mark = (await star.boundingBox())!,
       content = (await text.boundingBox())!;
@@ -1277,9 +1283,10 @@ test("dialogue English fills Cantonese in both views and dialogue recording rema
   for (const [index, name] of ["Leif", "Natasha"].entries()) {
     await page.getByRole("button", { name, exact: true }).click();
     const turn = turns.nth(index);
+    await turn.getByLabel("Dialogue translation").dblclick();
     await turn.getByLabel("Dialogue translation").fill("drink water");
     await turn.getByLabel("Dialogue translation").press("Tab");
-    await expect(turn.locator("textarea")).toHaveValue(
+    await expect(turn.locator(".dialogue-language-line textarea")).toHaveValue(
       name === "Leif" ? "jam2 seoi2" : "飲水",
     );
   }
@@ -1419,6 +1426,7 @@ test("conversation vocabulary, avatar colours and Natasha-only inline audio stay
     .click();
   const conversation = page.getByTestId("conversation-card"),
     turn = conversation.locator(".dialogue-turn").first();
+  await turn.getByLabel("Dialogue Cantonese").dblclick();
   await turn.getByLabel("Dialogue Cantonese").fill("我想飲水");
   await turn.getByLabel("Dialogue Cantonese").press("Tab");
   await page
@@ -1506,6 +1514,18 @@ test("table handles drag continuously and table fills and borders are editable",
     .poll(async () => (await table.boundingBox())!.x)
     .toBeGreaterThan(before.x + 60);
   await page.mouse.up();
+  const afterHandle = (await table.boundingBox())!;
+  const heading = (await table.locator("th").first().boundingBox())!;
+  await page.mouse.move(heading.x + 8, heading.y + 8);
+  await page.mouse.down();
+  await page.mouse.move(heading.x + 88, heading.y + 48, { steps: 8 });
+  await expect
+    .poll(async () => (await table.boundingBox())!.x)
+    .toBeGreaterThan(afterHandle.x + 60);
+  await page.mouse.up();
+  const input = table.getByLabel("Chinese phrase").first();
+  await input.fill("你好");
+  await expect(input).toHaveValue("你好");
   const appearance = page.locator(".appearance");
   await appearance
     .getByRole("button", { name: "Lavender fill", exact: true })
@@ -1535,6 +1555,11 @@ test("in-place phrase editing preserves geometry and colours, with editable stan
     await card.locator("h2").evaluate((node) => getComputedStyle(node).color),
   ).toBe(colour);
   await card.getByLabel("Edit phrase in place").press("Enter");
+  await expect(card.getByLabel("Phrase translation")).not.toBeEditable();
+  await card.getByLabel("Phrase translation").click();
+  await expect(card.getByLabel("Phrase translation")).not.toBeEditable();
+  await card.getByLabel("Phrase translation").dblclick();
+  await expect(card.getByLabel("Phrase translation")).toBeEditable();
   await card.getByLabel("Phrase translation").fill("drink water");
   await card.getByLabel("Phrase translation").press("Tab");
   await expect(card.locator("h2")).toHaveText("jam2 seoi2");

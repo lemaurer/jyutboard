@@ -207,6 +207,7 @@ test("browser participant shares edits, conversation bubbles and attached audio 
     await a.page
       .getByRole("button", { name: "Add conversation", exact: true })
       .click();
+    await a.page.getByLabel("Dialogue Cantonese").first().dblclick();
     await a.page.getByLabel("Dialogue Cantonese").first().fill("你好");
     await expect(b.page.getByTestId("conversation-card")).toContainText(
       "nei5 hou2",

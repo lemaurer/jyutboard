@@ -3422,7 +3422,7 @@ summary > svg,
 .language-placeholder {
   color: #8a95a8;
 }
-.phrase-card input.card-english {
+.phrase-card .card-english {
   display: block;
   width: 100%;
   min-width: 0;
@@ -3493,4 +3493,15 @@ summary > svg,
   font-size: calc(16px * var(--text-scale, 1));
   line-height: 1.55;
   color: #443925;
+}
+
+.dialogue-meaning {
+  width: 100%;
+  margin: 0;
+  padding: 3px 0;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.language-caret[readonly] {
+  cursor: inherit !important;
 }

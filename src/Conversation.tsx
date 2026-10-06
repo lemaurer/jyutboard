@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { InlineLanguage } from "./InlineLanguage";
 import {
   type HighlightMode,
@@ -38,6 +39,7 @@ export function Conversation({
   onDelete: (row: TableRow) => void;
   onSelect: (row: TableRow) => void;
 }) {
+  const [editing, setEditing] = useState<string | null>(null);
   return (
     <div className="conversation-turns">
       {card.rows.map((row, index) => {
@@ -116,6 +118,10 @@ export function Conversation({
             >
               <div className="dialogue-language-line">
                 <InlineLanguage
+                  keepInput
+                  autoFocus
+                  editing={editing === `${row.id}:language`}
+                  onActivate={() => setEditing(`${row.id}:language`)}
                   label={teacher ? "Dialogue Cantonese" : "Dialogue Jyutping"}
                   placeholder={teacher ? "寫句中文…" : "Write Jyutping…"}
                   value={teacher ? row.chinese : row.jyutping}
@@ -129,7 +135,12 @@ export function Conversation({
                       ? onChinese(row, text)
                       : onChange(row, { jyutping: text })
                   }
-                  onBlur={(text) => onComplete(row, text)}
+                  onBlur={(text) => {
+                    setEditing((current) =>
+                      current === `${row.id}:language` ? null : current,
+                    );
+                    onComplete(row, text);
+                  }}
                 />
                 {teacher && (
                   <div className="dialogue-audio-control">
@@ -156,29 +167,34 @@ export function Conversation({
                 )}
               </div>
               {showEnglish && (
-                <input
-                  className={mode === "peek" ? "bubble-peek-meaning" : ""}
-                  aria-label="Dialogue translation"
-                  placeholder="Meaning…"
-                  value={row.definition}
-                  onBlur={(event) => {
-                    if (
-                      event.currentTarget.value !==
-                      event.currentTarget.dataset.original
-                    )
-                      onComplete(row, event.currentTarget.value, "english");
-                  }}
-                  onFocus={(event) => {
-                    event.currentTarget.dataset.original =
-                      event.currentTarget.value;
-                  }}
-                  onChange={(e) =>
-                    onChange(row, {
-                      definition: e.target.value,
-                      translation: "edited",
-                    })
-                  }
-                />
+                <p
+                  className={`dialogue-meaning ${mode === "peek" ? "bubble-peek-meaning" : ""}`}
+                  title="Double-click to edit meaning"
+                >
+                  <InlineLanguage
+                    keepInput
+                    autoFocus
+                    label="Dialogue translation"
+                    placeholder="Meaning…"
+                    value={row.definition}
+                    words={[]}
+                    chinese={false}
+                    mode="off"
+                    selected={false}
+                    editing={editing === `${row.id}:english`}
+                    onActivate={() => setEditing(`${row.id}:english`)}
+                    onChange={(text) =>
+                      onChange(row, { definition: text, translation: "edited" })
+                    }
+                    onBlur={(text, changed) => {
+                      setEditing((current) =>
+                        current === `${row.id}:english` ? null : current,
+                      );
+                      if (changed && text.trim())
+                        onComplete(row, text, "english");
+                    }}
+                  />
+                </p>
               )}
               <button
                 className={`bubble-star ${row.starred ? "is-starred" : ""}`}

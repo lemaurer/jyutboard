@@ -3469,16 +3469,14 @@ export default function App() {
                           else cardElements.current.delete(card.id);
                         }}
                         style={cardStyle(card)}
+                        onPointerDown={(event) => startDrag(event, card)}
                         onClick={(event) => {
                           if (!gestureMoved.current)
                             selectCard(card.id, null, event.shiftKey, true);
                           gestureMoved.current = false;
                         }}
                       >
-                        <div
-                          className="table-title"
-                          onPointerDown={(event) => startDrag(event, card)}
-                        >
+                        <div className="table-title">
                           <button
                             className="table-drag-handle"
                             aria-label="Move table"
@@ -3644,7 +3642,11 @@ export default function App() {
                                   definition: e.target.value,
                                 })
                               }
-                              onBlur={() => setEditingCard(null)}
+                              onBlur={() =>
+                                setEditingCard((current) =>
+                                  current === card.id ? null : current,
+                                )
+                              }
                               onKeyDown={(e) => {
                                 if (e.key === "Escape") e.currentTarget.blur();
                               }}
@@ -3697,44 +3699,54 @@ export default function App() {
                                   editPhraseInPlace(card, text)
                                 }
                                 onBlur={(text) => {
-                                  setEditingCard(null);
+                                  setEditingCard((current) =>
+                                    current === card.id ? null : current,
+                                  );
                                   void completePhrase(card, text);
                                 }}
                               />
                             </h2>
                             {card.mode === "full" && (
-                              <input
+                              <p
                                 className="card-english"
-                                aria-label="Phrase translation"
-                                placeholder="Meaning…"
-                                value={card.definition}
-                                onPointerDown={(event) =>
-                                  event.stopPropagation()
-                                }
-                                onClick={(event) => event.stopPropagation()}
-                                onFocus={(event) => {
-                                  event.currentTarget.dataset.original =
-                                    event.currentTarget.value;
-                                }}
-                                onChange={(event) =>
-                                  doc &&
-                                  patchCard(doc, card.id, {
-                                    definition: event.target.value,
-                                    translation: "edited",
-                                  })
-                                }
-                                onBlur={(event) => {
-                                  if (
-                                    event.currentTarget.value !==
-                                    event.currentTarget.dataset.original
-                                  )
-                                    void completePhrase(
-                                      card,
-                                      event.currentTarget.value,
-                                      "english",
+                                title="Double-click to edit meaning"
+                              >
+                                <InlineLanguage
+                                  keepInput
+                                  value={card.definition}
+                                  placeholder="Meaning…"
+                                  label="Phrase translation"
+                                  words={[]}
+                                  chinese={false}
+                                  mode="off"
+                                  selected={false}
+                                  editing={editingCard === `${card.id}:english`}
+                                  autoFocus
+                                  onActivate={() =>
+                                    setEditingCard(`${card.id}:english`)
+                                  }
+                                  onChange={(text) =>
+                                    doc &&
+                                    patchCard(doc, card.id, {
+                                      definition: text,
+                                      translation: "edited",
+                                    })
+                                  }
+                                  onBlur={(text, changed) => {
+                                    setEditingCard((current) =>
+                                      current === `${card.id}:english`
+                                        ? null
+                                        : current,
                                     );
-                                }}
-                              />
+                                    if (changed && text.trim())
+                                      void completePhrase(
+                                        card,
+                                        text,
+                                        "english",
+                                      );
+                                  }}
+                                />
+                              </p>
                             )}
                             {["peek", "characters"].includes(card.mode) &&
                               !englishHidden(card, teacher) && (

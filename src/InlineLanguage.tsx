@@ -18,6 +18,8 @@ export function InlineLanguage({
   recent = false,
   editing = true,
   autoFocus = false,
+  keepInput = false,
+  onActivate,
   onChange,
   onBlur,
 }: {
@@ -32,8 +34,10 @@ export function InlineLanguage({
   recent?: boolean;
   editing?: boolean;
   autoFocus?: boolean;
+  keepInput?: boolean;
+  onActivate?: () => void;
   onChange: (text: string) => void;
-  onBlur: (text: string) => void;
+  onBlur: (text: string, changed: boolean) => void;
 }) {
   const input = useRef<HTMLTextAreaElement>(null);
   useLayoutEffect(() => {
@@ -50,7 +54,7 @@ export function InlineLanguage({
         selected={selected}
         recent={recent}
       />
-      {editing && (
+      {(editing || keepInput) && (
         <textarea
           ref={input}
           aria-label={label}
@@ -58,10 +62,30 @@ export function InlineLanguage({
           value={value}
           placeholder={placeholder}
           maxLength={2000}
-          onPointerDown={(event) => event.stopPropagation()}
-          onClick={(event) => event.stopPropagation()}
+          readOnly={!editing}
+          tabIndex={editing ? 0 : -1}
+          onDoubleClick={(event) => {
+            event.stopPropagation();
+            onActivate?.();
+          }}
+          onPointerDown={(event) => {
+            if (editing) event.stopPropagation();
+            else event.preventDefault();
+          }}
+          onClick={(event) => {
+            if (editing) event.stopPropagation();
+          }}
           onChange={(event) => onChange(event.target.value)}
-          onBlur={(event) => onBlur(event.currentTarget.value)}
+          onFocus={(event) => {
+            event.currentTarget.dataset.original = event.currentTarget.value;
+          }}
+          onBlur={(event) =>
+            onBlur(
+              event.currentTarget.value,
+              event.currentTarget.value !==
+                event.currentTarget.dataset.original,
+            )
+          }
           onKeyDown={(event) => {
             if (
               (event.key === "Enter" &&
