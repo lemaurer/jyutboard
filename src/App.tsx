@@ -686,19 +686,25 @@ export default function App() {
         parentId,
         request,
       });
-      if (!card.syncState)
+      if (navigator.onLine === false && card.syncState !== "waiting")
+        patchJyutDeckSync(card.id, parentId, {
+          syncState: "waiting",
+          syncMessage: "Waiting for internet",
+        });
+      else if (!card.syncState)
         patchJyutDeckSync(card.id, parentId, {
           syncState: "pending",
           syncMessage: "Saved · syncing soon",
         });
     }
-    void flushJyutDeckOutbox();
+    if (navigator.onLine !== false) void flushJyutDeckOutbox();
   }, [doc, session.id, session.title, cards]);
 
   useEffect(() => {
     if (!doc) return;
     const retry = () => {
-      if (document.visibilityState === "visible") void flushJyutDeckOutbox();
+      if (document.visibilityState === "visible" && navigator.onLine !== false)
+        void flushJyutDeckOutbox();
     };
     const timer = setInterval(retry, 5000);
     window.addEventListener("online", retry);
@@ -2406,15 +2412,7 @@ export default function App() {
     if (flushingOutbox.current || !doc || !window.desktop) return;
     const batch = dueJyutDeckOutboxItems(session.id).slice(0, 5);
     if (!batch.length) return;
-    if (navigator.onLine === false) {
-      batch.forEach((item) =>
-        patchJyutDeckSync(item.cardId, item.parentId, {
-          syncState: "waiting",
-          syncMessage: "Waiting for internet",
-        }),
-      );
-      return;
-    }
+    if (navigator.onLine === false) return;
     flushingOutbox.current = true;
     batch.forEach((item) =>
       patchJyutDeckSync(item.cardId, item.parentId, {
