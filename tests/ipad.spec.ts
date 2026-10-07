@@ -832,7 +832,7 @@ test("iPad navigation paints without resizing the scroll surface and settles wit
   }
 });
 
-test("iPad speech bubbles stay text until double-tapped and the correct line gets keyboard focus", async () => {
+test("iPad speech bubbles edit on one tap and the correct line gets keyboard focus", async () => {
   const { page, context } = await tablet();
   try {
     await page.goto(
@@ -849,17 +849,12 @@ test("iPad speech bubbles stay text until double-tapped and the correct line get
     let text = turn.getByLabel("Dialogue Jyutping");
     let box = (await text.boundingBox())!;
     await page.touchscreen.tap(box.x + 10, box.y + 10);
-    await expect(turn.locator("textarea")).toHaveCount(0);
-    await page.waitForTimeout(400);
-    await page.touchscreen.tap(box.x + 10, box.y + 10);
-    await page.touchscreen.tap(box.x + 10, box.y + 10);
     await expect(turn.getByLabel("Dialogue Jyutping")).toBeFocused();
     await turn.getByLabel("Dialogue Jyutping").fill("nei5 hou2");
     await turn.getByLabel("Dialogue Jyutping").press("Enter");
     await expect(turn.locator("textarea")).toHaveCount(0);
     text = turn.getByLabel("Dialogue translation");
     box = (await text.boundingBox())!;
-    await page.touchscreen.tap(box.x + 10, box.y + 5);
     await page.touchscreen.tap(box.x + 10, box.y + 5);
     await expect(turn.getByLabel("Dialogue translation")).toBeFocused();
     await turn.getByLabel("Dialogue translation").fill("drink water");

@@ -19,6 +19,7 @@ export function InlineLanguage({
   editing = true,
   autoFocus = false,
   labelWhenIdle = false,
+  activation = "double",
   onActivate,
   onChange,
   onBlur,
@@ -35,6 +36,7 @@ export function InlineLanguage({
   editing?: boolean;
   autoFocus?: boolean;
   labelWhenIdle?: boolean;
+  activation?: "click" | "double";
   onActivate?: () => void;
   onChange: (text: string) => void;
   onBlur: (text: string, changed: boolean) => void;
@@ -49,10 +51,23 @@ export function InlineLanguage({
       aria-label={!editing && labelWhenIdle ? label : undefined}
       role={!editing && labelWhenIdle ? "textbox" : undefined}
       aria-readonly={!editing && labelWhenIdle ? true : undefined}
-      title={!editing && onActivate ? "Double-click to edit" : undefined}
+      title={
+        !editing && onActivate
+          ? activation === "click"
+            ? "Click to edit"
+            : "Double-click to edit"
+          : undefined
+      }
+      data-inline-activation={activation}
+      onClick={(event) => {
+        if (!editing && activation === "click" && onActivate) {
+          event.stopPropagation();
+          onActivate();
+        }
+      }}
       data-inline-editable={!editing && onActivate ? "true" : undefined}
       onDoubleClick={(event) => {
-        if (!editing && onActivate) {
+        if (!editing && activation === "double" && onActivate) {
           event.stopPropagation();
           onActivate();
         }

@@ -184,3 +184,11 @@ Placement hints overlay the canvas without moving the view. The empty-canvas wel
 ### Canvas gesture routing
 
 Idle card and dialogue text stays ordinary canvas text, without invisible input overlays. Double-click or double-tap opens the chosen language or meaning editor; finishing closes it again. Scrolling over language, meaning and table fields uses the canvas camera, except when a focused multiline note editor needs its own internal scrolling. Pinch zoom, momentum and elastic boundaries continue to use the shared camera.
+
+### Handwrite → Card
+
+Choose **Handwrite → Card** beside Pen. Write Chinese with Apple Pencil (or a mouse on desktop), then pause for about a second. Nearby strokes become one phrase preview. **Confirm** replaces the temporary ink with a normal card at the same position, including Jyutping, English and the usual vocabulary awareness. Use **Edit**, **Retry** or **Cancel** in the preview if needed. Recognition requires Internet access and a registered paired lesson, or the host's JyutDeck request token. Failed recognition keeps the ink available for manual correction.
+
+Handwrite and Pen are separate. Pen drawings are never recognized or converted. Unconfirmed handwriting is temporary and local to the writer; confirmed cards use the existing shared lesson and persistence. Fingers still pan and pinch while Pencil writes. Conversation text opens for editing with one click/tap; on iPad, panning or zooming finishes the active edit before moving the canvas so Safari's native caret cannot stay behind.
+
+The recognition function source lives in `server/handwriting-recognition.ts` and `services/handwrite/handler.ts`. It validates a bounded PNG crop and verifies the existing lesson capability before calling the server-side vision provider. No provider key enters the app or shared document. The deployed function uses the existing lesson project's sensitive credential in an isolated deployment; JyutDeck's production application remains unchanged. `node scripts/deploy-recognition.mjs` verifies that project, deploys only the recognition service with automatic alias promotion disabled, and updates JyutBoard's rewrite to its immutable URL. Deploy the JyutBoard web app afterwards. An independently configured service can use `OPENAI_API_KEY` or `GROQ_API_KEY`, plus optional `HANDWRITE_MODEL`.

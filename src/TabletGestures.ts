@@ -86,7 +86,7 @@ export class TabletGestures {
     this.navigating ||=
       this.contacts.size > 1 ||
       (!this.manipulate(event) &&
-        ["draw", "highlight", "arrow", "pan"].includes(this.tool()));
+        ["draw", "handwrite", "highlight", "arrow", "pan"].includes(this.tool()));
     this.previous = this.center();
     if (this.navigating) this.viewport.setPointerCapture(event.pointerId);
     return this.navigating;

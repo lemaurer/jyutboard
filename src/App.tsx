@@ -1,3 +1,4 @@
+import { HandwriteLayer, type HandwriteHandle } from "./HandwriteLayer";
 import { InlineLanguage } from "./InlineLanguage";
 import { CardBorder } from "./CardBorder";
 import { phraseInput, inputLanguage } from "./phraseInput";
@@ -40,6 +41,7 @@ import {
   PanelLeft,
   PanelRight,
   Pencil,
+  ScanText,
   Plus,
   Radio,
   Redo2,
@@ -122,6 +124,7 @@ type Tool =
   | "pan"
   | "select"
   | "draw"
+  | "handwrite"
   | "highlight"
   | "arrow"
   | "phrase"
@@ -301,6 +304,7 @@ export default function App() {
   const [renaming, setRenaming] = useState(false);
   const board = useRef<HTMLDivElement>(null);
   const viewport = useRef<HTMLDivElement>(null);
+  const handwrite = useRef<HandwriteHandle | null>(null);
   const tabletGestures = useRef<TabletGestures | null>(null);
   const tabletTap = useRef<{
     pointer: number;
@@ -318,8 +322,18 @@ export default function App() {
   } | null>(null);
   const toolRef = useRef(tool);
   toolRef.current = tool;
-  const navigationRef = useRef({ stopFollowing, publishView, selectedItems });
-  navigationRef.current = { stopFollowing, publishView, selectedItems };
+  const navigationRef = useRef({
+    stopFollowing,
+    publishView,
+    selectedItems,
+    finishCanvasEditing,
+  });
+  navigationRef.current = {
+    stopFollowing,
+    publishView,
+    selectedItems,
+    finishCanvasEditing,
+  };
   const canvasMargin = useRef({ x: 0, y: 0 });
   const canvasLayout = useRef({ zoom: 0, width: 0, height: 0 });
   const zoomLabel = useRef<HTMLSpanElement>(null);
@@ -468,6 +482,7 @@ export default function App() {
       readCamera,
       (view, inFrame) => {
         navigationRef.current.stopFollowing();
+        navigationRef.current.finishCanvasEditing();
         queueCamera(view, inFrame);
       },
       () => toolRef.current,
@@ -480,7 +495,7 @@ export default function App() {
           id &&
           (event.pointerType === "touch" ||
             navigationRef.current.selectedItems.has(id)) &&
-          !["laser", "erase"].includes(toolRef.current),
+          !["laser", "erase", "handwrite"].includes(toolRef.current),
         );
       },
       undefined,
@@ -829,6 +844,7 @@ export default function App() {
       const cursorY = event.clientY - bounds.top;
       tabletGestures.current?.stop();
       navigationRef.current.stopFollowing();
+      navigationRef.current.finishCanvasEditing();
       const view = readCamera();
       const unit =
         event.deltaMode === 1
@@ -1170,6 +1186,7 @@ export default function App() {
       setInput((current) => (current === text ? "" : current));
       lesson.presence({ draft: "" });
       if (language === "chinese") void enrichPhrase(document, card);
+      return card.id;
     } catch (error) {
       notify(errorText(error));
     } finally {
@@ -1565,6 +1582,20 @@ export default function App() {
       lesson.stopCapturing();
     }
   }
+  function finishCanvasEditing() {
+    // WebKit paints the native caret outside the transformed layer. Commit the
+    // edit before navigating so it cannot remain detached from the moving card.
+    if (!tablet) return;
+    const editor = document.activeElement as HTMLElement | null;
+    if (
+      editor &&
+      board.current?.contains(editor) &&
+      editor.matches("input,textarea,[contenteditable=true]")
+    ) {
+      editor.blur();
+      setEditingCard(null);
+    }
+  }
   function finishTabletTap(event: PointerEvent<Element>) {
     const tap = tabletTap.current;
     if (!tap || tap.pointer !== event.pointerId) return;
@@ -1586,6 +1617,14 @@ export default function App() {
       clearSelection();
       setEditingCard(null);
       (document.activeElement as HTMLElement | null)?.blur();
+      lastTabletTap.current = null;
+      return;
+    }
+    const clickEditor = tap.target.closest<HTMLElement>(
+      '[data-inline-editable][data-inline-activation="click"]',
+    );
+    if (clickEditor) {
+      clickEditor.dispatchEvent(new MouseEvent("click", { bubbles: true }));
       lastTabletTap.current = null;
       return;
     }
@@ -1630,6 +1669,7 @@ export default function App() {
     beginDrag(event, ids);
   }
   function beginDrag(event: PointerEvent<Element>, ids: Set<string>) {
+    finishCanvasEditing();
     if (board.current) board.current.dataset.gesture = "drag";
     lesson.stopCapturing();
     gestureMoved.current = false;
@@ -2735,6 +2775,14 @@ export default function App() {
                   <Pencil size={17} />
                 </button>
                 <button
+                  title="Handwrite → Card"
+                  aria-label="Handwrite → Card"
+                  className={tool === "handwrite" ? "active" : ""}
+                  onClick={() => setTool("handwrite")}
+                >
+                  <ScanText size={17} />
+                </button>
+                <button
                   title="Highlight"
                   aria-label="Highlight"
                   className={tool === "highlight" ? "active" : ""}
@@ -2947,6 +2995,12 @@ export default function App() {
                 />
               </div>
             )}
+            {tool === "handwrite" && (
+              <div className="tool-hint">
+                Write Chinese, then pause to preview a card. Fingers pan; Pencil
+                writes.
+              </div>
+            )}
             {tool === "erase" && (
               <div className="tool-hint">
                 Click or brush across a drawing to erase the mark. Undo restores
@@ -3015,6 +3069,19 @@ export default function App() {
               className="canvas-viewport"
               ref={viewport}
               onPointerDownCapture={(e) => {
+                if ((e.target as Element).closest(".handwrite-preview")) return;
+                if (
+                  tool === "handwrite" &&
+                  e.pointerType !== "touch" &&
+                  e.button === 0
+                ) {
+                  tabletGestures.current?.down(e.nativeEvent);
+                  handwrite.current?.begin(point(e), e.pointerId, e.pressure);
+                  e.currentTarget.setPointerCapture(e.pointerId);
+                  e.preventDefault();
+                  e.stopPropagation();
+                  return;
+                }
                 if (tablet && e.pointerType === "touch") {
                   const target = e.target as HTMLElement;
                   if (
@@ -3039,6 +3106,7 @@ export default function App() {
                   if (gestures.navigationActive) {
                     if (gestures.multipleContacts) tabletTap.current = null;
                     lastTabletTap.current = null;
+                    handwrite.current?.end(undefined, true);
                     cancelDrag();
                     lasso.current = null;
                     setLassoPath([]);
@@ -3110,6 +3178,20 @@ export default function App() {
                 }
               }}
               onPointerMoveCapture={(e) => {
+                if (handwrite.current?.active()) {
+                  const samples = e.nativeEvent.getCoalescedEvents?.() ?? [];
+                  for (const sample of samples.length
+                    ? samples
+                    : [e.nativeEvent])
+                    handwrite.current.move(
+                      point(sample),
+                      e.pointerId,
+                      sample.pressure,
+                    );
+                  e.preventDefault();
+                  e.stopPropagation();
+                  return;
+                }
                 const tap = tabletTap.current;
                 if (
                   tap &&
@@ -3126,6 +3208,12 @@ export default function App() {
                 }
               }}
               onPointerUpCapture={(e) => {
+                if (handwrite.current?.active() && e.pointerType !== "touch") {
+                  handwrite.current.end(e.pointerId);
+                  tabletGestures.current?.releasePen(e.nativeEvent);
+                  e.stopPropagation();
+                  return;
+                }
                 const navigation = tabletGestures.current?.up(e.nativeEvent);
                 if (tablet && (drag.current || lasso.current)) {
                   endPointer(e);
@@ -3135,6 +3223,8 @@ export default function App() {
                 if (tablet && e.pointerType === "touch") finishTabletTap(e);
               }}
               onPointerCancelCapture={(e) => {
+                handwrite.current?.end(e.pointerId, true);
+                tabletGestures.current?.releasePen(e.nativeEvent);
                 const navigation = tabletGestures.current?.up(e.nativeEvent);
                 tabletTap.current = null;
                 lastTabletTap.current = null;
@@ -3223,6 +3313,15 @@ export default function App() {
                       addBlankPhrase(point(event));
                   }}
                 >
+                  <HandwriteLayer
+                    key={session.id}
+                    ref={handwrite}
+                    enabled={tool === "handwrite"}
+                    zoom={() => readCamera().zoom}
+                    onConfirm={async (text, location) =>
+                      Boolean(await addPhrase(text, location, "chinese"))
+                    }
+                  />
                   <DrawingLayer
                     strokes={[...strokes, ...(pending ? [pending] : [])]}
                     connectors={connectors.flatMap((connector) => {
@@ -3427,6 +3526,7 @@ export default function App() {
                           }
                         />
                         <Conversation
+                          canEdit={() => !gestureMoved.current}
                           card={card}
                           teacher={teacher}
                           vocabulary={vocabulary}

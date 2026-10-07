@@ -1283,7 +1283,7 @@ test("dialogue English fills Cantonese in both views and dialogue recording rema
   for (const [index, name] of ["Leif", "Natasha"].entries()) {
     await page.getByRole("button", { name, exact: true }).click();
     const turn = turns.nth(index);
-    await turn.getByLabel("Dialogue translation").dblclick();
+    await turn.getByLabel("Dialogue translation").click();
     await turn.getByLabel("Dialogue translation").fill("drink water");
     await turn.getByLabel("Dialogue translation").press("Tab");
     await expect(turn.getByLabel(/Dialogue (Cantonese|Jyutping)/)).toHaveText(
@@ -1426,7 +1426,7 @@ test("conversation vocabulary, avatar colours and Natasha-only inline audio stay
     .click();
   const conversation = page.getByTestId("conversation-card"),
     turn = conversation.locator(".dialogue-turn").first();
-  await turn.getByLabel("Dialogue Cantonese").dblclick();
+  await turn.getByLabel("Dialogue Cantonese").click();
   await turn.getByLabel("Dialogue Cantonese").fill("我想飲水");
   await turn.getByLabel("Dialogue Cantonese").press("Tab");
   await page
@@ -1593,7 +1593,7 @@ test("wheel and zoom over phrase meanings and speech text stay with the canvas u
   ];
   await expect(page.locator(".canvas textarea")).toHaveCount(0);
   for (const target of targets) {
-    await target.click();
+    await target.hover();
     await expect(page.locator(".canvas textarea")).toHaveCount(0);
     const result = await target.evaluate(async (node) => {
       const viewport = node.closest(".canvas-viewport")!,
@@ -1635,7 +1635,7 @@ test("wheel and zoom over phrase meanings and speech text stay with the canvas u
     expect(result.moved).toBeGreaterThan(30);
     await page.waitForTimeout(300);
   }
-  await turn.getByLabel("Dialogue Jyutping").dblclick();
+  await turn.getByLabel("Dialogue Jyutping").click();
   await expect(turn.locator("textarea")).toBeFocused();
   await turn.getByLabel("Dialogue Jyutping").fill("nei5 hou2");
   await turn.getByLabel("Dialogue Jyutping").press("Enter");

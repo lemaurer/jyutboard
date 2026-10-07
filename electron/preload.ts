@@ -9,6 +9,7 @@ contextBridge.exposeInMainWorld("desktop", {
   },
   copyText: (text: string) => ipcRenderer.invoke("clipboard:write", text),
   vocabulary: () => ipcRenderer.invoke("board:vocabulary"),
+  recognize: (image: string) => ipcRenderer.invoke("board:recognize", image),
   transcribe: (audio: string) => ipcRenderer.invoke("board:transcribe", audio),
   pair: (value: unknown) => ipcRenderer.invoke("board:pair", value),
   getSettings: () => ipcRenderer.invoke("settings:get"),

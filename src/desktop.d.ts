@@ -17,6 +17,7 @@ declare global {
         queued: string[];
         at: number;
       }>;
+      recognize?: (image: string) => Promise<{ chinese: string }>;
       transcribe: (audio: string) => Promise<{ transcript: string }>;
       pair: (value: {
         action: "get" | "remember" | "publish" | "resolve" | "forget";

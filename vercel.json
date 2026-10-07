@@ -2,7 +2,7 @@
   "framework": "vite",
   "buildCommand": "npm run build:web",
   "outputDirectory": "dist",
-  "rewrites": [{"source":"/api/board","destination":"https://jyutdeck-live-jul08f.vercel.app/api/v1/board"}],
+  "rewrites": [{"source":"/api/handwrite","destination":"https://jyutdeck-live-jul08f-1f9wb7h4u-cantonese.vercel.app/api/handwrite"},{"source":"/api/board","destination":"https://jyutdeck-live-jul08f.vercel.app/api/v1/board"}],
   "headers": [
     {"source":"/sw.js","headers":[{"key":"Cache-Control","value":"no-cache"}]},
     {"source":"/index.html","headers":[{"key":"Cache-Control","value":"no-cache"}]},

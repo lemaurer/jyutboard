@@ -3507,3 +3507,18 @@ summary > svg,
   opacity: 1;
   pointer-events: auto;
 }
+
+/* Temporary writing owns its ink only. Ordinary drawing remains untouched. */
+.handwrite-layer, .handwrite-ink { position:absolute; inset:0; pointer-events:none; }
+.handwrite-layer { z-index:8; }
+.handwrite-preview { position:absolute; width:270px; pointer-events:auto; background:#fffdf9; border:1px solid #d6dfeb; border-radius:12px; padding:10px 12px; box-shadow:0 4px 18px #24385415; font-size:13px; cursor:default; }
+.handwrite-result, .handwrite-actions { display:flex; align-items:center; gap:8px; }
+.handwrite-result { min-height:26px; color:#455c84; }
+.handwrite-result input { width:100%; min-width:0; border:0; border-bottom:1px solid #b7c7dd; background:transparent; font:inherit; font-size:17px; padding:3px; }
+.handwrite-actions { margin-top:8px; }
+.handwrite-actions button { display:flex; align-items:center; gap:4px; padding:6px 8px; border:0; background:#eef2fa; border-radius:7px; }
+.handwrite-actions button:first-child { margin-right:auto; color:#3557a0; }
+.handwrite-error { color:#87524c; margin:6px 0; font-size:12px; }
+.canvas.tool-handwrite { cursor:crosshair; }
+.canvas.tool-handwrite .board-card, .canvas.tool-handwrite .board-card *, .canvas.tool-handwrite .drawing-layer { pointer-events:none; }
+.dialogue-turn .inline-language[data-inline-activation="click"] { cursor:text; }

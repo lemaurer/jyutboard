@@ -281,30 +281,38 @@ app.whenReady().then(async () => {
       needsToken &&
       !secrets.queueToken &&
       Boolean(secrets.pairRoom) &&
-      ["vocabulary", "transcribe", "analyze"].includes(action || "");
+      ["vocabulary", "transcribe", "analyze", "recognize"].includes(
+        action || "",
+      );
     if (needsToken && !secrets.queueToken && !pairedGuest)
       throw Error(
         "Pair with Leif's room, or add the JyutDeck request token in Settings first.",
       );
-    if (pairedGuest) body = { ...(body as object), room: secrets.pairRoom };
+    if (pairedGuest || (action === "recognize" && secrets.pairRoom))
+      body = { ...(body as object), room: secrets.pairRoom };
     const endpoint = new URL(
       secrets.queueUrl ||
         "https://jyutdeck-live-jul08f.vercel.app/api/v1/requests",
     );
     endpoint.pathname = "/api/v1/board";
     endpoint.search = "";
-    const response = await net.fetch(endpoint.toString(), {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...(needsToken && secrets.queueToken
-          ? { Authorization: `Bearer ${secrets.queueToken}` }
-          : {}),
+    const response = await net.fetch(
+      action === "recognize"
+        ? "https://jyutboard.vercel.app/api/handwrite"
+        : endpoint.toString(),
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(needsToken && secrets.queueToken
+            ? { Authorization: `Bearer ${secrets.queueToken}` }
+            : {}),
+        },
+        body: JSON.stringify(body),
+        redirect: "error",
+        signal: AbortSignal.timeout(90000),
       },
-      body: JSON.stringify(body),
-      redirect: "error",
-      signal: AbortSignal.timeout(90000),
-    });
+    );
     const result = await response.json();
     if (!response.ok)
       throw Error(result.error || "JyutDeck connection unavailable.");
@@ -321,6 +329,15 @@ app.whenReady().then(async () => {
   ipcMain.handle("board:vocabulary", async (event) => {
     trusted(event);
     return boardRequest({ action: "vocabulary" });
+  });
+  ipcMain.handle("board:recognize", async (event, input) => {
+    trusted(event);
+    const image = z
+      .string()
+      .max(1_500_000)
+      .regex(/^data:image\/png;base64,[A-Za-z0-9+/=]+$/)
+      .parse(input);
+    return boardRequest({ action: "recognize", image });
   });
   ipcMain.handle("board:transcribe", async (event, input) => {
     trusted(event);

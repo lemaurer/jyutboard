@@ -15,6 +15,7 @@ export function Conversation({
   highlightMode,
   selectedRow,
   hidden,
+  canEdit,
   onChange,
   onChinese,
   onComplete,
@@ -30,6 +31,7 @@ export function Conversation({
   highlightMode: HighlightMode;
   selectedRow: string | null;
   hidden: boolean;
+  canEdit: () => boolean;
   onChange: (row: TableRow, patch: Partial<TableRow>) => void;
   onChinese: (row: TableRow, text: string) => void;
   onComplete: (row: TableRow, text: string, language?: SourceLanguage) => void;
@@ -118,10 +120,12 @@ export function Conversation({
             >
               <div className="dialogue-language-line">
                 <InlineLanguage
+                  activation="click"
                   labelWhenIdle
                   autoFocus
                   editing={editing === `${row.id}:language`}
                   onActivate={() => {
+                    if (!canEdit()) return;
                     onSelect(row);
                     setEditing(`${row.id}:language`);
                   }}
@@ -172,9 +176,10 @@ export function Conversation({
               {showEnglish && (
                 <p
                   className={`dialogue-meaning ${mode === "peek" ? "bubble-peek-meaning" : ""}`}
-                  title="Double-click to edit meaning"
+                  title="Click to edit meaning"
                 >
                   <InlineLanguage
+                    activation="click"
                     labelWhenIdle
                     autoFocus
                     label="Dialogue translation"
@@ -186,6 +191,7 @@ export function Conversation({
                     selected={false}
                     editing={editing === `${row.id}:english`}
                     onActivate={() => {
+                      if (!canEdit()) return;
                       onSelect(row);
                       setEditing(`${row.id}:english`);
                     }}

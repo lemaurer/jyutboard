@@ -46,7 +46,7 @@ export function installWebRuntime() {
     const room =
       typeof fields.room === "string" ? fields.room : storedPair()?.room;
     if (!room) throw Error("Join your partner’s Internet lesson first.");
-    const response = await fetch("/api/board", {
+    const response = await fetch(action === "recognize" ? "/api/handwrite" : "/api/board", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ action, room, ...fields }),
@@ -64,6 +64,7 @@ export function installWebRuntime() {
   window.desktop = {
     web: true,
     vocabulary: () => api("vocabulary"),
+    recognize: (image) => api("recognize", { image }),
     transcribe: (audio) => api("transcribe", { audio }),
     analyze: (text, language) => api("analyze", { text, language }),
     send: (payload) => api("send", { payload }),
