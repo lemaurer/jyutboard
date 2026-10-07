@@ -3502,6 +3502,8 @@ summary > svg,
   font-size: 12px;
   line-height: 1.5;
 }
-.language-caret[readonly] {
-  cursor: inherit !important;
+
+.dialogue-turn.turn-selected .bubble-peek-meaning {
+  opacity: 1;
+  pointer-events: auto;
 }

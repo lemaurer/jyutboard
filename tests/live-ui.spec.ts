@@ -917,9 +917,9 @@ test("conversation bubbles have saved queue receipts, display modes and a varied
   await page.getByLabel("Conversation mode").selectOption("practice");
   await page.getByRole("button", { name: "Leif", exact: true }).click();
   await expect(conversation.getByLabel("Dialogue translation")).toHaveCount(0);
-  await expect(
-    conversation.getByLabel("Dialogue Jyutping").first(),
-  ).toHaveValue("jam2 seoi2");
+  await expect(conversation.getByLabel("Dialogue Jyutping").first()).toHaveText(
+    "jam2 seoi2",
+  );
 });
 
 test("notes edit directly and laser draws across cards without focusing or moving them", async ({
@@ -1211,7 +1211,7 @@ test("favourite stars fit inside each phrase mode and right-hand dialogue stars 
     const turn = conversation.locator(`.turn-${side}`).first(),
       bubble = turn.locator(".dialogue-bubble"),
       star = turn.locator(".bubble-star"),
-      text = turn.locator(".dialogue-language-line textarea");
+      text = turn.getByLabel(/Dialogue (Cantonese|Jyutping)/);
     const box = (await bubble.boundingBox())!,
       mark = (await star.boundingBox())!,
       content = (await text.boundingBox())!;
@@ -1286,7 +1286,7 @@ test("dialogue English fills Cantonese in both views and dialogue recording rema
     await turn.getByLabel("Dialogue translation").dblclick();
     await turn.getByLabel("Dialogue translation").fill("drink water");
     await turn.getByLabel("Dialogue translation").press("Tab");
-    await expect(turn.locator(".dialogue-language-line textarea")).toHaveValue(
+    await expect(turn.getByLabel(/Dialogue (Cantonese|Jyutping)/)).toHaveText(
       name === "Leif" ? "jam2 seoi2" : "飲水",
     );
   }
@@ -1331,7 +1331,7 @@ test("dialogue English fills Cantonese in both views and dialogue recording rema
     turn.getByRole("button", { name: "Hold to speak Cantonese" }),
   ).toHaveAttribute("data-phase", "recording");
   await turn.getByRole("button", { name: "Hold to speak Cantonese" }).click();
-  await expect(turn.getByLabel("Dialogue Cantonese")).toHaveValue("你好");
+  await expect(turn.getByLabel("Dialogue Cantonese")).toHaveText("你好");
   await expect(turn.getByLabel("Play bubble recording")).toBeVisible();
   await turn.getByRole("button", { name: "Save bubble", exact: true }).click();
   await page.getByRole("button", { name: "Show details", exact: true }).click();
@@ -1454,7 +1454,7 @@ test("conversation vocabulary, avatar colours and Natasha-only inline audio stay
   await expect(
     conversation.getByRole("button", { name: "Hold to speak Cantonese" }),
   ).toHaveCount(0);
-  await expect(turn.getByLabel("Dialogue Jyutping")).toHaveValue(
+  await expect(turn.getByLabel("Dialogue Jyutping")).toHaveText(
     "ngo5 soeng2 jam2 seoi2",
   );
   await expect(turn.locator(".highlight-enabled .state-known")).toHaveText(
@@ -1563,7 +1563,82 @@ test("in-place phrase editing preserves geometry and colours, with editable stan
   await card.getByLabel("Phrase translation").fill("drink water");
   await card.getByLabel("Phrase translation").press("Tab");
   await expect(card.locator("h2")).toHaveText("jam2 seoi2");
-  await expect(card.getByLabel("Phrase translation")).toHaveValue(
-    "drink water",
-  );
+  await expect(card.getByLabel("Phrase translation")).toHaveText("drink water");
+});
+
+test("wheel and zoom over phrase meanings and speech text stay with the canvas until editing is requested", async ({
+  browser,
+}) => {
+  test.setTimeout(45000);
+  const page = await blankPage(browser, false);
+  await page.getByLabel("Cantonese phrase").fill("飲水");
+  await page.getByRole("button", { name: "Add phrase", exact: true }).click();
+  const initial = (await page.getByTestId("phrase-card").locator("h2").boundingBox())!;
+  await page.mouse.move(initial.x+10,initial.y+10);
+  await page.mouse.down();
+  await page.mouse.move(initial.x-230,initial.y-90,{steps:6});
+  await page.mouse.up();
+  await page
+    .getByRole("button", { name: "Add conversation", exact: true })
+    .click();
+  const turn = page
+    .getByTestId("conversation-card")
+    .locator(".dialogue-turn")
+    .first();
+  const phrase = page.getByTestId("phrase-card");
+  const targets = [
+    phrase.getByLabel("Phrase translation"),
+    turn.getByLabel("Dialogue Jyutping"),
+    turn.getByLabel("Dialogue translation"),
+  ];
+  await expect(page.locator(".canvas textarea")).toHaveCount(0);
+  for (const target of targets) {
+    await target.click();
+    await expect(page.locator(".canvas textarea")).toHaveCount(0);
+    const result = await target.evaluate(async (node) => {
+      const viewport = node.closest(".canvas-viewport")!,
+        canvas = viewport.querySelector<HTMLElement>(".canvas")!;
+      const start = canvas.getBoundingClientRect().left;
+      const rect = node.getBoundingClientRect();
+      const pan = new WheelEvent("wheel", {
+        bubbles: true,
+        cancelable: true,
+        deltaX: 45,
+        clientX: rect.x + 5,
+        clientY: rect.y + 5,
+      });
+      node.dispatchEvent(pan);
+      await new Promise((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(resolve)),
+      );
+      const moved = start - canvas.getBoundingClientRect().left;
+      const zoom = new WheelEvent("wheel", {
+        bubbles: true,
+        cancelable: true,
+        ctrlKey: true,
+        deltaY: -12,
+        clientX: rect.x + 5,
+        clientY: rect.y + 5,
+      });
+      node.dispatchEvent(zoom);
+      await new Promise((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(resolve)),
+      );
+      return {
+        panOwned: pan.defaultPrevented,
+        zoomOwned: zoom.defaultPrevented,
+        moved,
+      };
+    });
+    expect(result.panOwned).toBe(true);
+    expect(result.zoomOwned).toBe(true);
+    expect(result.moved).toBeGreaterThan(30);
+    await page.waitForTimeout(300);
+  }
+  await turn.getByLabel("Dialogue Jyutping").dblclick();
+  await expect(turn.locator("textarea")).toBeFocused();
+  await turn.getByLabel("Dialogue Jyutping").fill("nei5 hou2");
+  await turn.getByLabel("Dialogue Jyutping").press("Enter");
+  await expect(turn.getByLabel("Dialogue Jyutping")).toHaveText("nei5 hou2");
+  await expect(turn.locator("textarea")).toHaveCount(0);
 });

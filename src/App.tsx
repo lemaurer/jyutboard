@@ -798,7 +798,18 @@ export default function App() {
       if (!node) return;
       if (!(event.ctrlKey || event.metaKey || event.altKey)) {
         motion.stop();
-        if ((event.target as Element).closest("textarea,input,select")) return;
+        const target = event.target as Element;
+        if (target.closest("select")) return;
+        const editor = target.closest<HTMLTextAreaElement>("textarea");
+        // Only a focused, internally scrollable editor owns its wheel gesture.
+        if (
+          editor === document.activeElement &&
+          editor &&
+          !editor.classList.contains("language-caret") &&
+          (editor.scrollHeight > editor.clientHeight + 1 ||
+            editor.scrollWidth > editor.clientWidth + 1)
+        )
+          return;
         event.preventDefault();
         const unit =
           event.deltaMode === 1
@@ -1584,6 +1595,12 @@ export default function App() {
       performance.now() - previous.time < 350 &&
       Math.hypot(tap.x - previous.x, tap.y - previous.y) < 24
     ) {
+      const inline = tap.target.closest<HTMLElement>("[data-inline-editable]");
+      if (inline) {
+        inline.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+        lastTabletTap.current = null;
+        return;
+      }
       const card = cards.find((card) => card.id === tap.id);
       if (card?.kind === "phrase" || card?.kind === "note")
         setEditingCard(card.id);
@@ -3712,7 +3729,7 @@ export default function App() {
                                 title="Double-click to edit meaning"
                               >
                                 <InlineLanguage
-                                  keepInput
+                                  labelWhenIdle
                                   value={card.definition}
                                   placeholder="Meaning…"
                                   label="Phrase translation"

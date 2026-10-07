@@ -18,7 +18,7 @@ export function InlineLanguage({
   recent = false,
   editing = true,
   autoFocus = false,
-  keepInput = false,
+  labelWhenIdle = false,
   onActivate,
   onChange,
   onBlur,
@@ -34,7 +34,7 @@ export function InlineLanguage({
   recent?: boolean;
   editing?: boolean;
   autoFocus?: boolean;
-  keepInput?: boolean;
+  labelWhenIdle?: boolean;
   onActivate?: () => void;
   onChange: (text: string) => void;
   onBlur: (text: string, changed: boolean) => void;
@@ -44,7 +44,20 @@ export function InlineLanguage({
     if (editing && autoFocus) input.current?.focus({ preventScroll: true });
   }, [editing, autoFocus]);
   return (
-    <span className={`inline-language ${value ? "" : "language-placeholder"}`}>
+    <span
+      className={`inline-language ${value ? "" : "language-placeholder"}`}
+      aria-label={!editing && labelWhenIdle ? label : undefined}
+      role={!editing && labelWhenIdle ? "textbox" : undefined}
+      aria-readonly={!editing && labelWhenIdle ? true : undefined}
+      title={!editing && onActivate ? "Double-click to edit" : undefined}
+      data-inline-editable={!editing && onActivate ? "true" : undefined}
+      onDoubleClick={(event) => {
+        if (!editing && onActivate) {
+          event.stopPropagation();
+          onActivate();
+        }
+      }}
+    >
       <VocabularyPhrase
         text={value || placeholder}
         words={words}
@@ -54,7 +67,7 @@ export function InlineLanguage({
         selected={selected}
         recent={recent}
       />
-      {(editing || keepInput) && (
+      {editing && (
         <textarea
           ref={input}
           aria-label={label}
@@ -62,19 +75,8 @@ export function InlineLanguage({
           value={value}
           placeholder={placeholder}
           maxLength={2000}
-          readOnly={!editing}
-          tabIndex={editing ? 0 : -1}
-          onDoubleClick={(event) => {
-            event.stopPropagation();
-            onActivate?.();
-          }}
-          onPointerDown={(event) => {
-            if (editing) event.stopPropagation();
-            else event.preventDefault();
-          }}
-          onClick={(event) => {
-            if (editing) event.stopPropagation();
-          }}
+          onPointerDown={(event) => event.stopPropagation()}
+          onClick={(event) => event.stopPropagation()}
           onChange={(event) => onChange(event.target.value)}
           onFocus={(event) => {
             event.currentTarget.dataset.original = event.currentTarget.value;

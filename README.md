@@ -180,3 +180,7 @@ Both participants can enter Chinese, English or tone-number Jyutping at the bott
 Leif’s canvas uses Jyutping without secondary Chinese on phrase cards or dialogue bubbles. Conversation audio controls are Natasha-only: the microphone sits beside the Chinese text and becomes a playback icon after recording. Bubble colours follow their avatar, and the vocabulary switch highlights dialogue words as well as phrase words. Double-click language text or a Standard card meaning to edit it directly on the canvas; a single click only selects. Editing uses the same typography and word colours as the displayed phrase.
 
 Placement hints overlay the canvas without moving the view. The empty-canvas welcome can be dismissed with its close button and stays out of drawing tools. New sticky notes start empty, with placeholder text. Move tables from any non-text area or the small grip beside their title; table fill presets and border controls are available in appearance settings.
+
+### Canvas gesture routing
+
+Idle card and dialogue text stays ordinary canvas text, without invisible input overlays. Double-click or double-tap opens the chosen language or meaning editor; finishing closes it again. Scrolling over language, meaning and table fields uses the canvas camera, except when a focused multiline note editor needs its own internal scrolling. Pinch zoom, momentum and elastic boundaries continue to use the shared camera.

@@ -678,7 +678,9 @@ test("iPad language choice sits beside the field and produces complete role-spec
     const cards = page.getByTestId("phrase-card");
     await expect(cards).toHaveCount(2);
     await expect(cards.first().locator("h2")).toHaveText("你好");
-    await expect(cards.first().getByLabel("Phrase translation")).toHaveValue("Hello");
+    await expect(cards.first().getByLabel("Phrase translation")).toHaveText(
+      "Hello",
+    );
     await page.getByLabel("Your lesson view").selectOption("learner");
     await expect(cards.first().locator("h2")).toHaveText("nei5 hou2");
     await expect(cards.first().locator(".card-secondary")).toHaveCount(0);
@@ -825,6 +827,45 @@ test("iPad navigation paints without resizing the scroll surface and settles wit
     expect(result.writesDuringNavigation).toBe(0);
     expect(result.writesAfter).toBeLessThanOrEqual(2);
     expect(result.shift).toBeLessThan(0.02);
+  } finally {
+    await context.close();
+  }
+});
+
+test("iPad speech bubbles stay text until double-tapped and the correct line gets keyboard focus", async () => {
+  const { page, context } = await tablet();
+  try {
+    await page.goto(
+      `/#room=${"3".repeat(48)}&relay=${encodeURIComponent(`ws://127.0.0.1:${relay.port}`)}`,
+    );
+    await page
+      .getByRole("button", { name: "Add conversation", exact: true })
+      .click();
+    const turn = page
+      .getByTestId("conversation-card")
+      .locator(".dialogue-turn")
+      .first();
+    await expect(turn.locator("textarea")).toHaveCount(0);
+    let text = turn.getByLabel("Dialogue Jyutping");
+    let box = (await text.boundingBox())!;
+    await page.touchscreen.tap(box.x + 10, box.y + 10);
+    await expect(turn.locator("textarea")).toHaveCount(0);
+    await page.waitForTimeout(400);
+    await page.touchscreen.tap(box.x + 10, box.y + 10);
+    await page.touchscreen.tap(box.x + 10, box.y + 10);
+    await expect(turn.getByLabel("Dialogue Jyutping")).toBeFocused();
+    await turn.getByLabel("Dialogue Jyutping").fill("nei5 hou2");
+    await turn.getByLabel("Dialogue Jyutping").press("Enter");
+    await expect(turn.locator("textarea")).toHaveCount(0);
+    text = turn.getByLabel("Dialogue translation");
+    box = (await text.boundingBox())!;
+    await page.touchscreen.tap(box.x + 10, box.y + 5);
+    await page.touchscreen.tap(box.x + 10, box.y + 5);
+    await expect(turn.getByLabel("Dialogue translation")).toBeFocused();
+    await turn.getByLabel("Dialogue translation").fill("drink water");
+    await turn.getByLabel("Dialogue translation").press("Enter");
+    await expect(turn.getByLabel("Dialogue Jyutping")).toHaveText("jam2 seoi2");
+    await expect(turn.locator("textarea")).toHaveCount(0);
   } finally {
     await context.close();
   }

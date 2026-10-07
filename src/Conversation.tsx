@@ -51,7 +51,7 @@ export function Conversation({
         return (
           <div
             key={row.id}
-            className={`dialogue-turn ${index % 2 ? "turn-right" : "turn-left"}`}
+            className={`dialogue-turn ${index % 2 ? "turn-right" : "turn-left"} ${selectedRow === row.id ? "turn-selected" : ""}`}
             onClick={(e) => {
               e.stopPropagation();
               onSelect(row);
@@ -118,10 +118,13 @@ export function Conversation({
             >
               <div className="dialogue-language-line">
                 <InlineLanguage
-                  keepInput
+                  labelWhenIdle
                   autoFocus
                   editing={editing === `${row.id}:language`}
-                  onActivate={() => setEditing(`${row.id}:language`)}
+                  onActivate={() => {
+                    onSelect(row);
+                    setEditing(`${row.id}:language`);
+                  }}
                   label={teacher ? "Dialogue Cantonese" : "Dialogue Jyutping"}
                   placeholder={teacher ? "寫句中文…" : "Write Jyutping…"}
                   value={teacher ? row.chinese : row.jyutping}
@@ -172,7 +175,7 @@ export function Conversation({
                   title="Double-click to edit meaning"
                 >
                   <InlineLanguage
-                    keepInput
+                    labelWhenIdle
                     autoFocus
                     label="Dialogue translation"
                     placeholder="Meaning…"
@@ -182,7 +185,10 @@ export function Conversation({
                     mode="off"
                     selected={false}
                     editing={editing === `${row.id}:english`}
-                    onActivate={() => setEditing(`${row.id}:english`)}
+                    onActivate={() => {
+                      onSelect(row);
+                      setEditing(`${row.id}:english`);
+                    }}
                     onChange={(text) =>
                       onChange(row, { definition: text, translation: "edited" })
                     }
