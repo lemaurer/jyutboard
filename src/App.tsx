@@ -648,6 +648,70 @@ export default function App() {
   }
   useEffect(() => () => clearTimeout(toastTimer.current), []);
   useEffect(() => {
+    if (!doc) return;
+    for (const { card, parentId } of starTargets) {
+      const key = jyutDeckOutboxKey(session.id, card.id);
+      if (card.syncState === "saved" || successfulQueueReceipt(card.receipt)) {
+        removeJyutDeckOutboxItem(key);
+        if (card.syncState !== "saved")
+          patchJyutDeckSync(card.id, parentId, {
+            syncState: "saved",
+            syncMessage: "Saved to JyutDeck",
+          });
+        continue;
+      }
+      // Older lessons can contain stars from before automatic syncing existed.
+      // Do not silently submit those until somebody explicitly saves them again.
+      if (!card.savedBy && !card.syncState) continue;
+      if (
+        !card.chinese.trim() &&
+        !(card.sourceLanguage === "jyutping"
+          ? card.jyutping.trim()
+          : card.definition.trim())
+      ) {
+        patchJyutDeckSync(card.id, parentId, {
+          syncState: "error",
+          syncMessage: "Complete the phrase before saving",
+        });
+        continue;
+      }
+      const request = queuePayload([card], session).requests[0] as Record<
+        string,
+        unknown
+      >;
+      ensureJyutDeckOutboxItem({
+        key,
+        sessionId: session.id,
+        cardId: card.id,
+        parentId,
+        request,
+      });
+      if (!card.syncState)
+        patchJyutDeckSync(card.id, parentId, {
+          syncState: "pending",
+          syncMessage: "Saved · syncing soon",
+        });
+    }
+    void flushJyutDeckOutbox();
+  }, [doc, session.id, session.title, cards]);
+
+  useEffect(() => {
+    if (!doc) return;
+    const retry = () => {
+      if (document.visibilityState === "visible") void flushJyutDeckOutbox();
+    };
+    const timer = setInterval(retry, 5000);
+    window.addEventListener("online", retry);
+    document.addEventListener("visibilitychange", retry);
+    retry();
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener("online", retry);
+      document.removeEventListener("visibilitychange", retry);
+    };
+  }, [doc, session.id, paired?.room]);
+
+  useEffect(() => {
     preference("role", role);
     lesson.presence({ role });
   }, [role]);
