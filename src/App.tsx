@@ -3567,7 +3567,7 @@ export default function App() {
                               removeJyutDeckOutboxItem(
                                 jyutDeckOutboxKey(session.id, row.id),
                               );
-                          }
+                          }}
                           onChinese={(row, text) =>
                             changeRowChinese(card.id, row, text)
                           }
