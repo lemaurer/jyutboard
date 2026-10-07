@@ -246,8 +246,10 @@ export function Conversation({
                       <option value="practice">Practice</option>
                     </select>
                   </label>
-                  {row.receipt && (
-                    <small className="receipt">{row.receipt}</small>
+                  {row.starred && (row.syncMessage || row.receipt) && (
+                    <small className="receipt">
+                      {row.syncMessage || row.receipt}
+                    </small>
                   )}
                   <button onClick={() => onDelete(row)}>
                     <X size={12} />
