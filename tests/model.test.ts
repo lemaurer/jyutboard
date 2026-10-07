@@ -86,11 +86,17 @@ test("queue requests use the documented envelope and do not pretend to upload au
   const card = createCard({
     chinese: "我想飲水",
     audio: "data:audio/webm;base64,YQ==",
+    starred: true,
+    savedBy: "teacher",
+    syncState: "pending",
   });
   const session = { id: newRoom(), title: "Tea time", created: Date.now() };
   const payload = queuePayload([card], session);
   assert.equal(payload.requests[0].chinese, card.chinese);
   assert.equal(payload.requests[0].metadata.hasLessonRecording, true);
+  assert.equal(payload.requests[0].metadata.sourceRole, "teacher");
+  assert.equal(payload.requests[0].metadata.teacherApproved, true);
+  assert.match(payload.requests[0].idempotencyKey, /:teacher:/);
   assert.equal(JSON.stringify(payload).includes("data:audio"), false);
   assert.deepEqual(payload, queuePayload([card], session));
 });
