@@ -145,7 +145,7 @@ const errorText = (error: unknown) =>
 const successfulQueueReceipt = (value = "") =>
   /^(created|existing|duplicate|saved)(?::|$)/i.test(value);
 const isBrowserOnline = () =>
-  typeof navigator === "undefined" || isBrowserOnline();
+  typeof navigator === "undefined" || navigator.onLine !== false;
 function syncLabel(item: Pick<Card, "syncState" | "syncMessage" | "receipt">) {
   if (item.syncMessage) return item.syncMessage;
   if (item.syncState === "syncing") return "Syncing…";
