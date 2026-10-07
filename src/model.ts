@@ -1,6 +1,12 @@
 import * as Y from "yjs";
 import { z } from "zod";
 export type Role = "teacher" | "learner";
+export type JyutDeckSyncState =
+  | "pending"
+  | "syncing"
+  | "waiting"
+  | "saved"
+  | "error";
 export type Word = {
   chinese: string;
   jyutping: string;
@@ -25,6 +31,9 @@ export type TableRow = {
   audioName?: string;
   mode?: CardMode;
   receipt?: string;
+  savedBy?: Role;
+  syncState?: JyutDeckSyncState;
+  syncMessage?: string;
 };
 export type CardMode =
   | "full"
@@ -67,6 +76,9 @@ export type Card = {
   audio?: string;
   audioName?: string;
   receipt?: string;
+  savedBy?: Role;
+  syncState?: JyutDeckSyncState;
+  syncMessage?: string;
 };
 export type Stroke = {
   id: string;
@@ -272,6 +284,9 @@ export const tableRowSchema = z.object({
     ])
     .optional(),
   receipt: z.string().max(500).optional(),
+  savedBy: z.enum(["teacher", "learner"]).optional(),
+  syncState: z.enum(["pending", "syncing", "waiting", "saved", "error"]).optional(),
+  syncMessage: z.string().max(500).optional(),
   persona: z.string().max(80).default("Natasha"),
   avatar: z.string().max(40).default("natasha"),
   answerChinese: z.string().max(2000).default(""),
@@ -338,6 +353,9 @@ export const cardSchema = z.object({
     .optional(),
   audioName: z.string().max(200).optional(),
   receipt: z.string().max(500).optional(),
+  savedBy: z.enum(["teacher", "learner"]).optional(),
+  syncState: z.enum(["pending", "syncing", "waiting", "saved", "error"]).optional(),
+  syncMessage: z.string().max(500).optional(),
 });
 export function readCards(doc: Y.Doc): Card[] {
   return [...doc.getMap<Y.Map<unknown>>("cards").values()]
@@ -409,6 +427,9 @@ export function conversationPhrase(card: Card, row: TableRow): Card {
     note: row.note,
     starred: row.starred,
     receipt: row.receipt,
+    savedBy: row.savedBy,
+    syncState: row.syncState,
+    syncMessage: row.syncMessage,
     audio: row.audio,
     audioName: row.audioName,
     mode: row.mode ?? card.mode,
@@ -442,9 +463,15 @@ export function queuePayload(cards: Card[], session: Session) {
         sessionId: session.id,
         cardId: card.id,
         hasLessonRecording: Boolean(card.audio),
+        ...(card.savedBy
+          ? {
+              sourceRole: card.savedBy,
+              teacherApproved: card.savedBy === "teacher",
+            }
+          : {}),
       },
       idempotencyKey:
-        `jyutboard:${session.id}:${card.id}:${card.chinese || card.jyutping || card.definition}`.slice(
+        `jyutboard:${session.id}:${card.id}:${card.savedBy || "learner"}:${card.chinese || card.jyutping || card.definition}`.slice(
           0,
           200,
         ),

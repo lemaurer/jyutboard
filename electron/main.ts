@@ -281,7 +281,7 @@ app.whenReady().then(async () => {
       needsToken &&
       !secrets.queueToken &&
       Boolean(secrets.pairRoom) &&
-      ["vocabulary", "transcribe", "analyze"].includes(action || "");
+      ["vocabulary", "transcribe", "analyze", "send"].includes(action || "");
     if (needsToken && !secrets.queueToken && !pairedGuest)
       throw Error(
         "Pair with Leif's room, or add the JyutDeck request token in Settings first.",
@@ -379,8 +379,6 @@ app.whenReady().then(async () => {
   });
   ipcMain.handle("queue:send", async (event, input) => {
     trusted(event);
-    if (!secrets.queueToken)
-      throw Error("Add your JyutDeck request token in Settings first.");
     const item = z
       .object({
         chinese: z.string().min(1).max(2000).optional(),
@@ -392,19 +390,35 @@ app.whenReady().then(async () => {
           sessionId: z.string().max(100),
           cardId: z.string().max(100),
           hasLessonRecording: z.boolean(),
+          sourceRole: z.enum(["teacher", "learner"]).optional(),
+          teacherApproved: z.boolean().optional(),
         }),
         idempotencyKey: z.string().max(200),
       })
       .strict()
       .refine((value) => Boolean(value.chinese || value.requestText));
-    const body = JSON.stringify(
-      z
-        .object({ requests: z.array(item).min(1).max(10) })
-        .strict()
-        .parse(input),
-    );
+    const payload = z
+      .object({ requests: z.array(item).min(1).max(10) })
+      .strict()
+      .parse(input);
+    const body = JSON.stringify(payload);
     if (Buffer.byteLength(body) > 65536)
       throw Error("Batch is too large. Send fewer phrases.");
+
+    // A paired participant can save through the room capability. Natasha never
+    // needs Leif's long-lived JyutDeck token on her own desktop.
+    if (!secrets.queueToken) {
+      if (!secrets.pairRoom)
+        throw Error(
+          "Pair this JyutBoard with Leif's room once, then saved phrases sync automatically.",
+        );
+      return boardRequest({
+        action: "send",
+        room: secrets.pairRoom,
+        payload,
+      });
+    }
+
     const response = await fetch(secrets.queueUrl, {
       method: "POST",
       headers: {

@@ -198,8 +198,32 @@ export function Conversation({
               )}
               <button
                 className={`bubble-star ${row.starred ? "is-starred" : ""}`}
-                aria-label={row.starred ? "Unsave bubble" : "Save bubble"}
-                onClick={() => onChange(row, { starred: !row.starred })}
+                aria-label={
+                  teacher && row.starred && row.savedBy !== "teacher"
+                    ? "Approve saved bubble"
+                    : row.starred
+                      ? "Unsave bubble"
+                      : "Save bubble"
+                }
+                onClick={() =>
+                  onChange(
+                    row,
+                    teacher && row.starred && row.savedBy !== "teacher"
+                      ? {
+                          savedBy: "teacher",
+                          syncState: "pending",
+                          syncMessage: "",
+                        }
+                      : row.starred
+                        ? { starred: false }
+                        : {
+                            starred: true,
+                            savedBy: teacher ? "teacher" : "learner",
+                            syncState: "pending",
+                            syncMessage: "",
+                          },
+                  )
+                }
               >
                 <Star size={13} fill={row.starred ? "currentColor" : "none"} />
               </button>
@@ -222,8 +246,10 @@ export function Conversation({
                       <option value="practice">Practice</option>
                     </select>
                   </label>
-                  {row.receipt && (
-                    <small className="receipt">{row.receipt}</small>
+                  {row.starred && (row.syncMessage || row.receipt) && (
+                    <small className="receipt">
+                      {row.syncMessage || row.receipt}
+                    </small>
                   )}
                   <button onClick={() => onDelete(row)}>
                     <X size={12} />

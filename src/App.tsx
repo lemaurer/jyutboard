@@ -9,6 +9,13 @@ import { TabletGestures } from "./TabletGestures";
 import { copyInvitation } from "./clipboard";
 import { webInvitation, storedPair } from "./webRuntime";
 import {
+  dueJyutDeckOutboxItems,
+  ensureJyutDeckOutboxItem,
+  jyutDeckOutboxKey,
+  removeJyutDeckOutboxItem,
+  retryJyutDeckOutboxItem,
+} from "./jyutdeckOutbox";
+import {
   useEffect,
   useLayoutEffect,
   useRef,
@@ -43,7 +50,6 @@ import {
   Plus,
   Radio,
   Redo2,
-  Send,
   Settings as SettingsIcon,
   Star,
   StickyNote,
@@ -136,6 +142,20 @@ const clamp = (value: number, low: number, high: number) =>
   Math.min(high, Math.max(low, value));
 const errorText = (error: unknown) =>
   error instanceof Error ? error.message : String(error);
+const successfulQueueReceipt = (value = "") =>
+  /^(created|existing|duplicate|saved)(?::|$)/i.test(value);
+const isBrowserOnline = () =>
+  typeof navigator === "undefined" || navigator.onLine !== false;
+function syncLabel(item: Pick<Card, "syncState" | "syncMessage" | "receipt">) {
+  if (item.syncMessage) return item.syncMessage;
+  if (item.syncState === "syncing") return "Syncing…";
+  if (item.syncState === "waiting") return "Waiting for internet";
+  if (item.syncState === "saved") return "Saved to JyutDeck";
+  if (item.syncState === "error") return "Needs attention";
+  if (item.syncState === "pending") return "Saved · syncing soon";
+  if (successfulQueueReceipt(item.receipt)) return "Saved to JyutDeck";
+  return item.receipt || "Saved locally";
+}
 function initialSession() {
   if (window.desktop?.web && location.hash.includes("room=")) {
     try {
@@ -297,7 +317,6 @@ export default function App() {
   const [zoom, setZoom] = useState(1);
   const zoomRef = useRef(1);
   const [pending, setPending] = useState<Stroke | null>(null);
-  const [sending, setSending] = useState(false);
   const [renaming, setRenaming] = useState(false);
   const board = useRef<HTMLDivElement>(null);
   const viewport = useRef<HTMLDivElement>(null);
@@ -569,21 +588,23 @@ export default function App() {
   const toastTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
     undefined,
   );
+  const flushingOutbox = useRef(false);
   const active = cards.find((card) => card.id === selected);
   const activeRow = active?.rows.find((row) => row.id === selectedRow);
   const teacher = role === "teacher";
   useEffect(() => {
     if (tablet) setSourceLanguage(role === "teacher" ? "chinese" : "jyutping");
   }, [role, tablet]);
-  const stars = cards.flatMap((card) =>
+  const starTargets = cards.flatMap((card) =>
     card.kind === "conversation"
       ? card.rows
           .filter((row) => row.starred)
-          .map((row) => conversationPhrase(card, row))
+          .map((row) => ({ card: conversationPhrase(card, row), parentId: card.id }))
       : card.starred && card.kind === "phrase"
-        ? [card]
+        ? [{ card, parentId: undefined as string | undefined }]
         : [],
   );
+  const stars = starTargets.map(({ card }) => card);
   const hidden = !teacher && (activeRow?.mode ?? active?.mode) === "practice";
   const effectiveRightOpen = rightOpen;
 
@@ -628,6 +649,76 @@ export default function App() {
     toastTimer.current = setTimeout(() => setNotice(""), 6500);
   }
   useEffect(() => () => clearTimeout(toastTimer.current), []);
+  useEffect(() => {
+    if (!doc) return;
+    for (const { card, parentId } of starTargets) {
+      const key = jyutDeckOutboxKey(session.id, card.id);
+      if (card.syncState === "saved" || successfulQueueReceipt(card.receipt)) {
+        removeJyutDeckOutboxItem(key);
+        if (card.syncState !== "saved")
+          patchJyutDeckSync(card.id, parentId, {
+            syncState: "saved",
+            syncMessage: "Saved to JyutDeck",
+          });
+        continue;
+      }
+      // Older lessons can contain stars from before automatic syncing existed.
+      // Do not silently submit those until somebody explicitly saves them again.
+      if (!card.savedBy && !card.syncState) continue;
+      if (
+        !card.chinese.trim() &&
+        !(card.sourceLanguage === "jyutping"
+          ? card.jyutping.trim()
+          : card.definition.trim())
+      ) {
+        patchJyutDeckSync(card.id, parentId, {
+          syncState: "error",
+          syncMessage: "Complete the phrase before saving",
+        });
+        continue;
+      }
+      const request = queuePayload([card], session).requests[0] as Record<
+        string,
+        unknown
+      >;
+      ensureJyutDeckOutboxItem({
+        key,
+        sessionId: session.id,
+        cardId: card.id,
+        parentId,
+        request,
+      });
+      if (!isBrowserOnline() && card.syncState !== "waiting")
+        patchJyutDeckSync(card.id, parentId, {
+          syncState: "waiting",
+          syncMessage: "Waiting for internet",
+        });
+      else if (!card.syncState)
+        patchJyutDeckSync(card.id, parentId, {
+          syncState: "pending",
+          syncMessage: "Saved · syncing soon",
+        });
+    }
+    if (isBrowserOnline()) void flushJyutDeckOutbox();
+  }, [doc, session.id, session.title, cards]);
+
+  useEffect(() => {
+    if (!doc) return;
+    const retry = () => {
+      if (document.visibilityState === "visible" && isBrowserOnline())
+        void flushJyutDeckOutbox();
+    };
+    const timer = setInterval(retry, 5000);
+    window.addEventListener("online", retry);
+    document.addEventListener("visibilitychange", retry);
+    retry();
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener("online", retry);
+      document.removeEventListener("visibilitychange", retry);
+    };
+  }, [doc, session.id, paired?.room]);
+
   useEffect(() => {
     preference("role", role);
     lesson.presence({ role });
@@ -1250,7 +1341,7 @@ export default function App() {
           ...analyzeLocal(text),
           x: CENTER_X - 360 + index * 275,
           y: CENTER_Y - 190 + (index % 2) * 65,
-          starred: index === 0,
+          starred: false,
         }),
       );
     }
@@ -2290,57 +2381,100 @@ export default function App() {
       notify(errorText(error));
     }
   }
-  async function sendToQueue(items: Card[]) {
-    if (!items.length) return;
-    if (
-      items.some(
-        (card) =>
-          !card.chinese.trim() &&
-          !(card.sourceLanguage === "jyutping"
-            ? card.jyutping.trim()
-            : card.definition.trim()),
-      )
-    ) {
-      notify("Fill in each saved phrase before sending it.");
-      return;
-    }
-    if (!window.desktop) {
-      notify("Use the desktop app to send phrases to JyutDeck.");
-      return;
-    }
+  function patchJyutDeckSync(
+    cardId: string,
+    parentId: string | undefined,
+    patch: Partial<Card>,
+  ) {
     if (!doc) return;
-    setSending(true);
+    if (parentId) patchTableRow(doc, parentId, cardId, patch);
+    else patchCard(doc, cardId, patch);
+  }
+
+  async function refreshVocabularyAfterQueueSync() {
+    if (!doc || !window.desktop) return;
     try {
-      for (let start = 0; start < items.length; start += 5) {
-        const batch = items.slice(start, start + 5);
-        const receipts = parseReceipts(
-          await window.desktop.send(queuePayload(batch, session)),
-          batch.length,
-        );
-        batch.forEach((card, index) =>
-          (() => {
-            const parent = cards.find(
-              (item) =>
-                item.kind === "conversation" &&
-                item.rows.some((row) => row.id === card.id),
-            );
-            if (parent)
-              patchTableRow(doc, parent.id, card.id, {
-                receipt: receipts[index],
-              });
-            else patchCard(doc, card.id, { receipt: receipts[index] });
-          })(),
-        );
-      }
-      notify("Queue receipts updated. Check each phrase for its result.");
-    } catch (error) {
-      notify(
-        errorText(error) + " Your saved phrases are still here; retry is safe.",
+      const snapshot = await window.desktop.vocabulary();
+      doc.transact(
+        () =>
+          doc
+            .getMap<VocabularySnapshot>("vocabulary")
+            .set("snapshot", snapshot),
+        "vocabulary",
       );
-    } finally {
-      setSending(false);
+      setVocabularyMessage(
+        `Connected · ${snapshot.known.length} known forms · ${snapshot.queued.length} queued`,
+      );
+    } catch {
+      // Queue success is durable even if the follow-up vocabulary refresh fails.
     }
   }
+
+  async function flushJyutDeckOutbox() {
+    if (flushingOutbox.current || !doc || !window.desktop) return;
+    const batch = dueJyutDeckOutboxItems(session.id).slice(0, 5);
+    if (!batch.length) return;
+    if (!isBrowserOnline()) return;
+    flushingOutbox.current = true;
+    batch.forEach((item) =>
+      patchJyutDeckSync(item.cardId, item.parentId, {
+        syncState: "syncing",
+        syncMessage: "Syncing…",
+      }),
+    );
+    try {
+      const receipts = parseReceipts(
+        await window.desktop.send({ requests: batch.map((item) => item.request) }),
+        batch.length,
+      );
+      let refreshVocabulary = false;
+      batch.forEach((item, index) => {
+        const receipt = receipts[index] || "failed: Missing queue receipt";
+        if (successfulQueueReceipt(receipt)) {
+          removeJyutDeckOutboxItem(item.key);
+          patchJyutDeckSync(item.cardId, item.parentId, {
+            receipt,
+            syncState: "saved",
+            syncMessage: receipt.startsWith("duplicate")
+              ? "Already in JyutDeck"
+              : "Saved to JyutDeck",
+          });
+          refreshVocabulary = true;
+        } else if (receipt.startsWith("conflict")) {
+          removeJyutDeckOutboxItem(item.key);
+          patchJyutDeckSync(item.cardId, item.parentId, {
+            receipt,
+            syncState: "error",
+            syncMessage: "Needs attention",
+          });
+        } else {
+          retryJyutDeckOutboxItem(item.key);
+          patchJyutDeckSync(item.cardId, item.parentId, {
+            receipt,
+            syncState: "error",
+            syncMessage: "Couldn’t sync yet · retrying automatically",
+          });
+        }
+      });
+      if (refreshVocabulary) await refreshVocabularyAfterQueueSync();
+    } catch (error) {
+      const waiting = !isBrowserOnline();
+      batch.forEach((item) => {
+        retryJyutDeckOutboxItem(item.key);
+        patchJyutDeckSync(item.cardId, item.parentId, {
+          syncState: waiting ? "waiting" : "error",
+          syncMessage: waiting
+            ? "Waiting for internet"
+            : "Couldn’t sync yet · retrying automatically",
+        });
+      });
+    } finally {
+      flushingOutbox.current = false;
+      if (dueJyutDeckOutboxItems(session.id).length)
+        setTimeout(() => void flushJyutDeckOutbox(), 750);
+    }
+  }
+
   async function backup() {
     const text = JSON.stringify(
       {
@@ -3418,9 +3552,24 @@ export default function App() {
                             selected === card.id ? selectedRow : null
                           }
                           hidden={englishHidden(card, teacher)}
-                          onChange={(row, patch) =>
-                            doc && patchTableRow(doc, card.id, row.id, patch)
-                          }
+                          onChange={(row, patch) => {
+                            if (!doc) return;
+                            const nextPatch =
+                              patch.starred === true
+                                ? {
+                                    ...patch,
+                                    savedBy: patch.savedBy ?? role,
+                                    syncState: "pending" as const,
+                                    syncMessage: "",
+                                    receipt: "",
+                                  }
+                                : patch;
+                            patchTableRow(doc, card.id, row.id, nextPatch);
+                            if (patch.starred === false)
+                              removeJyutDeckOutboxItem(
+                                jyutDeckOutboxKey(session.id, row.id),
+                              );
+                          }}
                           onChinese={(row, text) =>
                             changeRowChinese(card.id, row, text)
                           }
@@ -3606,14 +3755,42 @@ export default function App() {
                           <button
                             className={`card-star ${card.starred ? "is-starred" : ""}`}
                             aria-label={
-                              card.starred ? "Unsave phrase" : "Save phrase"
+                              teacher && card.starred && card.savedBy !== "teacher"
+                                ? "Approve saved phrase"
+                                : card.starred
+                                  ? "Unsave phrase"
+                                  : "Save phrase"
                             }
                             onClick={(event) => {
                               event.stopPropagation();
-                              if (doc)
+                              if (!doc) return;
+                              if (
+                                teacher &&
+                                card.starred &&
+                                card.savedBy !== "teacher"
+                              ) {
                                 patchCard(doc, card.id, {
-                                  starred: !card.starred,
+                                  savedBy: "teacher",
+                                  syncState: "pending",
+                                  syncMessage: "",
+                                  receipt: "",
                                 });
+                                return;
+                              }
+                              if (card.starred) {
+                                patchCard(doc, card.id, { starred: false });
+                                removeJyutDeckOutboxItem(
+                                  jyutDeckOutboxKey(session.id, card.id),
+                                );
+                              } else {
+                                patchCard(doc, card.id, {
+                                  starred: true,
+                                  savedBy: role,
+                                  syncState: "pending",
+                                  syncMessage: "",
+                                  receipt: "",
+                                });
+                              }
                             }}
                           >
                             <Star
@@ -4370,20 +4547,50 @@ export default function App() {
                           {active.kind === "conversation" && (
                             <>
                               <button
-                                onClick={() =>
-                                  doc &&
-                                  patchTableRow(doc, active.id, activeRow.id, {
-                                    starred: !activeRow.starred,
-                                  })
-                                }
+                                onClick={() => {
+                                  if (!doc) return;
+                                  if (
+                                    teacher &&
+                                    activeRow.starred &&
+                                    activeRow.savedBy !== "teacher"
+                                  ) {
+                                    patchTableRow(doc, active.id, activeRow.id, {
+                                      savedBy: "teacher",
+                                      syncState: "pending",
+                                      syncMessage: "",
+                                      receipt: "",
+                                    });
+                                    return;
+                                  }
+                                  if (activeRow.starred) {
+                                    patchTableRow(doc, active.id, activeRow.id, {
+                                      starred: false,
+                                    });
+                                    removeJyutDeckOutboxItem(
+                                      jyutDeckOutboxKey(session.id, activeRow.id),
+                                    );
+                                  } else {
+                                    patchTableRow(doc, active.id, activeRow.id, {
+                                      starred: true,
+                                      savedBy: role,
+                                      syncState: "pending",
+                                      syncMessage: "",
+                                      receipt: "",
+                                    });
+                                  }
+                                }}
                               >
                                 <Star size={14} />
-                                {activeRow.starred
-                                  ? "Unsave bubble"
-                                  : "Save bubble"}
+                                {teacher &&
+                                activeRow.starred &&
+                                activeRow.savedBy !== "teacher"
+                                  ? "Approve for JyutDeck"
+                                  : activeRow.starred
+                                    ? "Unsave bubble"
+                                    : "Save bubble"}
                               </button>
-                              {activeRow.receipt && (
-                                <p className="receipt">{activeRow.receipt}</p>
+                              {activeRow.starred && (
+                                <p className="receipt">{syncLabel(activeRow)}</p>
                               )}
                             </>
                           )}
@@ -4629,22 +4836,8 @@ export default function App() {
                           notify={notify}
                         />
                       </div>
-                      <button
-                        className="send-single"
-                        disabled={
-                          sending ||
-                          !(
-                            active.chinese ||
-                            active.jyutping ||
-                            active.definition
-                          )
-                        }
-                        onClick={() => void sendToQueue([active])}
-                      >
-                        <Send size={14} /> Send phrase to JyutDeck
-                      </button>
-                      {active.receipt && (
-                        <p className="receipt">{active.receipt}</p>
+                      {active.starred && (
+                        <p className="receipt">{syncLabel(active)}</p>
                       )}
                     </>
                   )}
@@ -4681,7 +4874,9 @@ export default function App() {
                   </h3>
                   <span>{stars.length}</span>
                 </div>
-                <p className="small-copy">Useful phrases for JyutDeck.</p>
+                <p className="small-copy">
+                  Saved phrases sync to JyutDeck automatically.
+                </p>
                 <div className="tray">
                   {stars.length ? (
                     stars.map((card) => (
@@ -4714,8 +4909,8 @@ export default function App() {
                           {!englishHidden(card, teacher) && (
                             <small>{card.definition}</small>
                           )}
-                          {card.receipt && (
-                            <small className="receipt">{card.receipt}</small>
+                          {card.starred && (
+                            <small className="receipt">{syncLabel(card)}</small>
                           )}
                         </span>
                       </button>
@@ -4726,14 +4921,6 @@ export default function App() {
                     </div>
                   )}
                 </div>
-                <button
-                  className="primary send-tray"
-                  disabled={!stars.length || sending}
-                  onClick={() => void sendToQueue(stars)}
-                >
-                  <Send size={14} />
-                  {sending ? "Sending…" : "Send saved to JyutDeck"}
-                </button>
               </div>
             </aside>
           )}
