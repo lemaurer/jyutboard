@@ -116,9 +116,11 @@ export function Settings({
               />
             </label>
             <small>
-              Use the external request token, not the website login code.
-              Phrases enter Natasha’s approval queue. Lesson audio stays here
-              because the API does not accept recordings.
+              Only the computer that first connects JyutBoard to JyutDeck needs
+              this external request token. Paired Natasha devices use the private
+              lesson capability automatically. Leif-saved phrases enter Requests;
+              Natasha-approved phrases go straight to the recording workflow.
+              Lesson audio stays here because the API does not accept recordings.
             </small>
             <label>
               Google Cloud Translation key (optional){" "}
