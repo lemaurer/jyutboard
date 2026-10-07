@@ -898,13 +898,18 @@ test("conversation bubbles have saved queue receipts, display modes and a varied
     .first()
     .click();
   await expect(page.locator(".tray-item")).toHaveCount(1);
-  await page
-    .getByRole("button", { name: "Send saved to JyutDeck", exact: true })
-    .click();
-  await expect(page.locator(".tray-item .receipt")).toHaveText("created");
+  await expect(page.locator(".tray-item .receipt")).toHaveText(
+    "Saved to JyutDeck",
+    { timeout: 7000 },
+  );
   expect(
     await page.evaluate(() => (window as any).__queue.requests[0].chinese),
   ).toBe("飲水");
+  expect(
+    await page.evaluate(
+      () => (window as any).__queue.requests[0].metadata.sourceRole,
+    ),
+  ).toBe("teacher");
   await conversation.getByLabel("Choose avatar").first().click();
   await expect(
     conversation.locator(".avatar-grid").first().getByRole("button"),
