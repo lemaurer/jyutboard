@@ -144,6 +144,8 @@ const errorText = (error: unknown) =>
   error instanceof Error ? error.message : String(error);
 const successfulQueueReceipt = (value = "") =>
   /^(created|existing|duplicate|saved)(?::|$)/i.test(value);
+const isBrowserOnline = () =>
+  typeof navigator === "undefined" || isBrowserOnline();
 function syncLabel(item: Pick<Card, "syncState" | "syncMessage" | "receipt">) {
   if (item.syncMessage) return item.syncMessage;
   if (item.syncState === "syncing") return "Syncing…";
@@ -686,7 +688,7 @@ export default function App() {
         parentId,
         request,
       });
-      if (navigator.onLine === false && card.syncState !== "waiting")
+      if (!isBrowserOnline() && card.syncState !== "waiting")
         patchJyutDeckSync(card.id, parentId, {
           syncState: "waiting",
           syncMessage: "Waiting for internet",
@@ -697,13 +699,13 @@ export default function App() {
           syncMessage: "Saved · syncing soon",
         });
     }
-    if (navigator.onLine !== false) void flushJyutDeckOutbox();
+    if (isBrowserOnline()) void flushJyutDeckOutbox();
   }, [doc, session.id, session.title, cards]);
 
   useEffect(() => {
     if (!doc) return;
     const retry = () => {
-      if (document.visibilityState === "visible" && navigator.onLine !== false)
+      if (document.visibilityState === "visible" && isBrowserOnline())
         void flushJyutDeckOutbox();
     };
     const timer = setInterval(retry, 5000);
@@ -2412,7 +2414,7 @@ export default function App() {
     if (flushingOutbox.current || !doc || !window.desktop) return;
     const batch = dueJyutDeckOutboxItems(session.id).slice(0, 5);
     if (!batch.length) return;
-    if (navigator.onLine === false) return;
+    if (!isBrowserOnline()) return;
     flushingOutbox.current = true;
     batch.forEach((item) =>
       patchJyutDeckSync(item.cardId, item.parentId, {
@@ -2456,7 +2458,7 @@ export default function App() {
       });
       if (refreshVocabulary) await refreshVocabularyAfterQueueSync();
     } catch (error) {
-      const waiting = navigator.onLine === false;
+      const waiting = !isBrowserOnline();
       batch.forEach((item) => {
         retryJyutDeckOutboxItem(item.key);
         patchJyutDeckSync(item.cardId, item.parentId, {
