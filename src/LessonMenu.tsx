@@ -9,6 +9,7 @@ import {
   Sparkles,
   Upload,
   Download,
+  Play,
 } from "lucide-react";
 import type { Card } from "./model";
 import type { TeacherNote } from "./lessonTools";
@@ -16,6 +17,8 @@ import type { TeacherNote } from "./lessonTools";
 export function LessonTools({
   teacher,
   hasSelection,
+  concealedCount,
+  selectedConcealed,
   selected,
   active,
   sessionId,
@@ -30,6 +33,8 @@ export function LessonTools({
 }: {
   teacher: boolean;
   hasSelection: boolean;
+  concealedCount: number;
+  selectedConcealed: boolean;
   selected: Card[];
   active?: Card;
   sessionId: string;
@@ -127,6 +132,72 @@ export function LessonTools({
   const note = notes.find((note) => note.objectId === objectId)?.text || "";
   return (
     <div className="lesson-tool-control">
+      <button
+        className="lesson-quick-action"
+        aria-label={hasSelection ? "Arrange selected" : "Arrange canvas"}
+        title={hasSelection ? "Tidy selected spacing" : "Tidy canvas spacing"}
+        onClick={() => action(() => onArrange(!hasSelection))}
+      >
+        <AlignHorizontalSpaceAround size={17} />
+      </button>
+      {teacher && (
+        <>
+          {selected.length > 0 && (
+            <button
+              className="lesson-quick-action"
+              aria-label={
+                selectedConcealed
+                  ? "Reveal selected"
+                  : "Hide selected from Leif"
+              }
+              title={
+                selectedConcealed
+                  ? "Reveal selected"
+                  : "Hide selected from Leif"
+              }
+              onClick={() => action(() => onHide(false, !selectedConcealed))}
+            >
+              {selectedConcealed ? <Eye size={17} /> : <EyeOff size={17} />}
+            </button>
+          )}
+          {concealedCount > 0 && (
+            <button
+              className="lesson-quick-action reveal-next-action"
+              aria-label="Reveal next"
+              title={`Reveal next · ${concealedCount} remaining`}
+              onClick={() => action(onReveal)}
+            >
+              <Play size={16} />
+              <small>{concealedCount}</small>
+            </button>
+          )}
+          <button
+            className="lesson-quick-action"
+            aria-label="Private teaching notes"
+            title="Private teaching notes"
+            onClick={() => {
+              placePanel();
+              setPanel(panel === "notes" ? null : "notes");
+            }}
+          >
+            <LockKeyhole size={16} />
+          </button>
+          {active?.kind === "phrase" && (
+            <button
+              className="lesson-quick-action"
+              aria-label="Sentence variations"
+              title="Sentence variations"
+              onClick={() => {
+                placePanel();
+                setSlot(active.words[0]?.chinese || "");
+                setPanel("variants");
+              }}
+            >
+              <Sparkles size={16} />
+            </button>
+          )}
+        </>
+      )}
       <details
         ref={details}
         className="lesson-tools-menu"
@@ -145,17 +216,12 @@ export function LessonTools({
               style={position}
               onPointerDown={(event) => event.stopPropagation()}
             >
-              <button
-                onClick={() => action(() => onArrange(false))}
-                disabled={!hasSelection}
-              >
-                <AlignHorizontalSpaceAround size={15} />
-                Arrange selected
-              </button>
-              <button onClick={() => action(() => onArrange(true))}>
-                <AlignHorizontalSpaceAround size={15} />
-                Arrange canvas
-              </button>
+              {hasSelection && (
+                <button onClick={() => action(() => onArrange(true))}>
+                  <AlignHorizontalSpaceAround size={15} />
+                  Arrange canvas
+                </button>
+              )}
               {selected.filter((card) => card.kind === "phrase").length > 1 && (
                 <>
                   <button onClick={() => action(() => convert("conversation"))}>
@@ -169,45 +235,13 @@ export function LessonTools({
               {teacher && (
                 <>
                   <hr />
-                  <button
-                    onClick={() => action(() => onHide(false, true))}
-                    disabled={!selected.length}
-                  >
-                    <EyeOff size={15} />
-                    Hide selected from Leif
-                  </button>
-                  <button
-                    onClick={() => action(() => onHide(false, false))}
-                    disabled={!selected.length}
-                  >
-                    <Eye size={15} />
-                    Reveal selected
-                  </button>
                   <button onClick={() => action(() => onHide(true, true))}>
                     Prepare one-by-one reveal
                   </button>
-                  <button onClick={() => action(onReveal)}>Reveal next</button>
                   <button onClick={() => action(() => onHide(true, false))}>
                     Reveal everything
                   </button>
                   <hr />
-                  <button
-                    onClick={() => setPanel(panel === "notes" ? null : "notes")}
-                  >
-                    <LockKeyhole size={15} />
-                    Private teaching notes
-                  </button>
-                  {active?.kind === "phrase" && (
-                    <button
-                      onClick={() => {
-                        setSlot(active.words[0]?.chinese || "");
-                        setPanel("variants");
-                      }}
-                    >
-                      <Sparkles size={15} />
-                      Sentence variations
-                    </button>
-                  )}
                   <label className="lesson-import">
                     <Upload size={15} />
                     Import AI lesson

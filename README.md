@@ -1,6 +1,6 @@
 # JyutBoard
 
-Lesson preparation tools are available in the compact **… Lesson tools** menu: undoable auto-layout, private teaching notes, progressive reveal, sentence substitutions and selected-card conversion. AI assistants can generate complete canvases through the versioned JSON schema and optional MCP server. See [lesson API and teaching tools](docs/lesson-api.md) for setup, schemas, privacy behavior and examples.
+The canvas toolbar gives direct access to **Tidy spacing**, private teaching notes, hide/reveal, reveal-next and sentence variations when relevant. Tidy spacing preserves existing rows and topic groups, gently slides overlapping elements apart, and leaves the camera in place. Selected-card conversion and lesson import/export stay in the compact **… Lesson tools** menu. AI assistants can generate complete canvases through the versioned JSON schema and optional MCP server. See [lesson API and teaching tools](docs/lesson-api.md) for setup, schemas, privacy behavior and examples.
 
 A live teaching canvas for learning Cantonese together. Natasha writes naturally in Chinese; Leif sees Jyutping first. Both views share movable phrase cards, dense phrase tables, notes, drawings, pronunciation recordings, and a session tray.
 

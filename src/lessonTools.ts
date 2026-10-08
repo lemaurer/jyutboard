@@ -20,7 +20,7 @@ import type { Box } from "./canvasGeometry";
 
 export const layoutSchema = z
   .object({
-    mode: z.enum(["manual", "grid", "column"]).default("manual"),
+    mode: z.enum(["manual", "spacing", "grid", "column"]).default("manual"),
     gap: z.number().min(16).max(160).default(40),
     columns: z.number().int().min(1).max(8).default(3),
     x: z.number().min(0).max(5300).default(120),
@@ -73,9 +73,7 @@ export type TeacherNote = { objectId?: string; text: string };
 export function readingOrder<T extends { x: number; y: number; id: string }>(
   items: T[],
 ) {
-  return [...items].sort(
-    (a, b) => a.y - b.y || a.x - b.x || a.id.localeCompare(b.id),
-  );
+  return [...items].sort((a, b) => a.y - b.y || a.x - b.x);
 }
 export function arrangeBoxes(
   items: (Box & { id: string })[],
@@ -84,6 +82,7 @@ export function arrangeBoxes(
   const settings = layoutSchema.parse(options);
   const result = new Map<string, { x: number; y: number }>();
   if (settings.mode === "manual") return result;
+  if (settings.mode === "spacing") return optimizeSpacing(items, settings.gap);
   const columns = settings.mode === "column" ? 1 : settings.columns;
   const widths = Array.from({ length: columns }, (_, col) =>
     Math.max(
@@ -111,6 +110,125 @@ export function arrangeBoxes(
     y += Math.max(...row.map((item) => item.height)) + settings.gap;
   }
   return result;
+}
+/** Local minimum-displacement separation, retaining existing rows/columns and
+ * leaving already comfortably spaced topic groups exactly where they are. */
+export function optimizeSpacing(
+  items: (Box & { id: string; maxX?: number; maxY?: number })[],
+  gap = 32,
+) {
+  const nodes = items.map((item) => ({ ...item }));
+  const limit = (node: (typeof nodes)[number]) => {
+    node.x = Math.max(
+      0,
+      Math.min(node.maxX ?? Math.min(5300, 5600 - node.width), node.x),
+    );
+    node.y = Math.max(
+      0,
+      Math.min(node.maxY ?? Math.min(3300, 3600 - node.height), node.y),
+    );
+  };
+  for (let iteration = 0; iteration < 96; iteration++) {
+    let change = 0;
+    for (let i = 0; i < nodes.length; i++)
+      for (let j = i + 1; j < nodes.length; j++) {
+        const a = nodes[i],
+          b = nodes[j];
+        const dx = b.x + b.width / 2 - a.x - a.width / 2,
+          dy = b.y + b.height / 2 - a.y - a.height / 2;
+        const ox = (a.width + b.width) / 2 + gap - Math.abs(dx),
+          oy = (a.height + b.height) / 2 + gap - Math.abs(dy);
+        if (ox < 0.1 || oy < 0.1) continue;
+        const sameRow = Math.abs(items[i].y - items[j].y) < 18;
+        const sameColumn = Math.abs(items[i].x - items[j].x) < 18;
+        const axis = sameRow ? "x" : sameColumn ? "y" : ox < oy ? "x" : "y";
+        const direction = items[j][axis] >= items[i][axis] ? 1 : -1;
+        const extent =
+          axis === "x" ? (a.width + b.width) / 2 : (a.height + b.height) / 2;
+        const distance =
+          (extent + gap - direction * (axis === "x" ? dx : dy) + 0.2) / 2;
+        a[axis] -= direction * distance;
+        b[axis] += direction * distance;
+        limit(a);
+        limit(b);
+        change = Math.max(change, distance);
+      }
+    if (change < 0.1) break;
+  }
+  for (let i = 0; i < nodes.length; i++)
+    for (let j = i + 1; j < nodes.length; j++) {
+      const a = nodes[i],
+        b = nodes[j];
+      if (
+        Math.min(a.x + a.width, b.x + b.width) + gap - Math.max(a.x, b.x) > 1 &&
+        Math.min(a.y + a.height, b.y + b.height) + gap - Math.max(a.y, b.y) > 1
+      )
+        throw Error("This group needs more room. Tidy a smaller selection.");
+    }
+  return new Map(
+    nodes.map((node) => [
+      node.id,
+      { x: Math.round(node.x * 100) / 100, y: Math.round(node.y * 100) / 100 },
+    ]),
+  );
+}
+/** Nearby strokes form a single sketch so spacing never dismantles its ink. */
+export function groupSketches(strokes: Stroke[]) {
+  const groups: {
+    id: string;
+    ids: string[];
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    maxX: number;
+    maxY: number;
+  }[] = [];
+  for (const stroke of strokes) {
+    const xs = stroke.points.map((point) => point[0]),
+      ys = stroke.points.map((point) => point[1]);
+    if (!xs.length) continue;
+    const x = Math.min(...xs),
+      y = Math.min(...ys);
+    let box = {
+      id: stroke.id,
+      ids: [stroke.id],
+      x,
+      y,
+      width: Math.max(...xs) - x,
+      height: Math.max(...ys) - y,
+      maxX: 0,
+      maxY: 0,
+    };
+    for (let i = 0; i < groups.length; ) {
+      const other = groups[i];
+      if (
+        box.x > other.x + other.width + 12 ||
+        other.x > box.x + box.width + 12 ||
+        box.y > other.y + other.height + 12 ||
+        other.y > box.y + box.height + 12
+      ) {
+        i++;
+        continue;
+      }
+      const x = Math.min(box.x, other.x),
+        y = Math.min(box.y, other.y);
+      box = {
+        ...box,
+        ids: [...box.ids, ...other.ids],
+        x,
+        y,
+        width: Math.max(box.x + box.width, other.x + other.width) - x,
+        height: Math.max(box.y + box.height, other.y + other.height) - y,
+      };
+      groups.splice(i, 1);
+      i = 0;
+    }
+    box.maxX = 5600 - box.width;
+    box.maxY = 3600 - box.height;
+    groups.push(box);
+  }
+  return groups;
 }
 export function estimatedBox(card: Card): Box & { id: string } {
   return {
@@ -194,14 +312,12 @@ export function importLesson(doc: Y.Doc, input: unknown) {
     }
     for (const edge of lesson.connectors) {
       const id = crypto.randomUUID();
-      doc
-        .getMap<Connector>("connectors")
-        .set(id, {
-          ...edge,
-          id,
-          from: remap.get(edge.from)!,
-          to: remap.get(edge.to)!,
-        });
+      doc.getMap<Connector>("connectors").set(id, {
+        ...edge,
+        id,
+        from: remap.get(edge.from)!,
+        to: remap.get(edge.to)!,
+      });
     }
     doc.getMap("lessonInfo").set("scenario", lesson.scenario);
     doc.getMap("lessonInfo").set("objectives", lesson.objectives);

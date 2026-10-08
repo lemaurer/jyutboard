@@ -1,6 +1,7 @@
 import { HandwriteLayer, type HandwriteHandle } from "./HandwriteLayer";
 import { InlineLanguage } from "./InlineLanguage";
 import { CardBorder } from "./CardBorder";
+import { useLayoutMotion } from "./useLayoutMotion";
 import { LiveInk, RemoteInk, type LiveInkHandle } from "./LiveInk";
 import { phraseInput, inputLanguage } from "./phraseInput";
 import { ZoomMotion } from "./ZoomMotion";
@@ -100,6 +101,8 @@ import { Conversation } from "./Conversation";
 import { LessonTools } from "./LessonMenu";
 import {
   arrangeBoxes,
+  optimizeSpacing,
+  groupSketches,
   convertSelection,
   exportLesson,
   importLesson,
@@ -754,6 +757,14 @@ export default function App() {
   }, [session.id, connectors, cardSizes]);
   const activeRow = active?.rows.find(
     (row) => row.id === selectedRow && (role === "teacher" || !row.concealed),
+  );
+  const cancelLayoutMotion = useLayoutMotion(
+    doc,
+    cards,
+    strokes,
+    cardElements,
+    board,
+    paintConnectors,
   );
   const teacher = role === "teacher";
   useEffect(() => {
@@ -1464,6 +1475,7 @@ export default function App() {
     );
   }
   function beginInk(event: PointerEvent) {
+    cancelLayoutMotion();
     lesson.stopCapturing();
     path.current = {
       id: crypto.randomUUID(),
@@ -1857,6 +1869,7 @@ export default function App() {
     beginDrag(event, ids);
   }
   function beginDrag(event: PointerEvent<Element>, ids: Set<string>) {
+    cancelLayoutMotion();
     finishCanvasEditing();
     if (board.current) board.current.dataset.gesture = "drag";
     lesson.stopCapturing();
@@ -2401,23 +2414,54 @@ export default function App() {
       cards.filter((card) => all || selectedItems.has(card.id)),
     );
     const ink = strokes.filter((stroke) => all || selectedItems.has(stroke.id));
-    const boxes = [
-      ...items.map((card) => ({ ...cardBox(card), id: card.id })),
-      ...ink.map((stroke) => ({ ...pointsBox(stroke.points), id: stroke.id })),
-    ];
-    if (!boxes.length) return;
-    const positions = arrangeBoxes(boxes, {
-      mode: "grid",
-      columns: Math.min(3, boxes.length),
-      x: Math.min(...boxes.map((box) => box.x), 1200),
-      y: Math.min(...boxes.map((box) => box.y), 1000),
+    const sketches = groupSketches(ink);
+    // Reserve enough space for both Chinese and Jyutping views without widening
+    // the actual cards. Measure alternate text in one detached, hidden batch.
+    const measurement = document.createElement("div");
+    measurement.style.cssText =
+      "position:fixed;left:-10000px;top:0;width:5600px;visibility:hidden;pointer-events:none;contain:layout style";
+    const alternate = new Map<string, HTMLElement>();
+    items.forEach((card) => {
+      const node = cardElements.current.get(card.id);
+      if (card.kind !== "phrase" || !node) return;
+      const clone = node.cloneNode(true) as HTMLElement;
+      clone.removeAttribute("data-card-id");
+      clone.removeAttribute("data-testid");
+      clone.style.left = "0";
+      clone.style.top = "0";
+      clone.style.translate = "";
+      const text = clone.querySelector("h2");
+      if (text) {
+        text.className = teacher ? "card-jyutping" : "card-chinese";
+        text.textContent = teacher ? card.jyutping : card.chinese;
+      }
+      measurement.append(clone);
+      alternate.set(card.id, clone);
     });
+    document.body.append(measurement);
+    const boxes = [
+      ...items.map((card) => {
+        const box = cardBox(card),
+          clone = alternate.get(card.id);
+        return {
+          ...box,
+          id: card.id,
+          width: Math.max(box.width, clone?.offsetWidth || 0),
+          height: Math.max(box.height, clone?.offsetHeight || 0),
+        };
+      }),
+      ...sketches,
+    ];
+    measurement.remove();
+    if (!boxes.length) return;
+    cancelLayoutMotion();
+    const positions = optimizeSpacing(boxes);
     lesson.stopCapturing();
     doc.transact(() => {
       items.forEach((card) => patchCard(doc, card.id, positions.get(card.id)!));
       ink.forEach((stroke) => {
-        const box = pointsBox(stroke.points),
-          position = positions.get(stroke.id)!;
+        const box = sketches.find((sketch) => sketch.ids.includes(stroke.id))!,
+          position = positions.get(box.id)!;
         doc.getMap<Stroke>("strokes").set(stroke.id, {
           ...stroke,
           points: stroke.points.map(([x, y]) => [
@@ -2426,10 +2470,16 @@ export default function App() {
           ]),
         });
       });
+      doc.getMap("lessonInfo").set("layoutMotion", {
+        id: crypto.randomUUID(),
+        at: Date.now(),
+        ids: [
+          ...items.map((card) => card.id),
+          ...ink.map((stroke) => stroke.id),
+        ],
+      });
     });
     lesson.stopCapturing();
-    const first = positions.get(boxes[0].id)!;
-    centerView(first.x + boxes[0].width / 2, first.y + boxes[0].height / 2);
   }
   function hideLesson(all: boolean, concealed: boolean) {
     if (!doc || !teacher) return;
@@ -3122,6 +3172,16 @@ export default function App() {
               <LessonTools
                 teacher={teacher}
                 hasSelection={selectedItems.size > 0}
+                concealedCount={cards.reduce(
+                  (count, card) =>
+                    count +
+                    Number(Boolean(card.concealed)) +
+                    card.rows.filter((row) => row.concealed).length,
+                  0,
+                )}
+                selectedConcealed={Boolean(
+                  activeRow?.concealed ?? active?.concealed,
+                )}
                 selected={cards.filter((card) => selectedItems.has(card.id))}
                 active={active}
                 sessionId={session.id}

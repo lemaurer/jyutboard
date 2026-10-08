@@ -87,7 +87,7 @@ server.registerTool(
         "Use concealed:true on objects or rows for one-by-one reveals.",
         "teacherNotes remain local to Natasha when JSON is imported; never shared.",
         "Vocabulary states are hints; connected JyutDeck vocabulary is authoritative.",
-        "Manual layout preserves coordinates; grid/column layout runs once.",
+        "Manual layout preserves coordinates; spacing locally separates overlaps; grid/column layout runs once for new structures.",
         "Import appends new IDs and preserves existing lessons and undo.",
       ],
     }),

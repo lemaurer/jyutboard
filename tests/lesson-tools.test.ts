@@ -15,6 +15,9 @@ import {
 } from "../src/model";
 import {
   arrangeBoxes,
+  optimizeSpacing,
+  groupSketches,
+  readingOrder,
   convertSelection,
   exportLesson,
   importLesson,
@@ -45,6 +48,96 @@ const input = {
   ],
   teacherNotes: [{ objectId: "a", text: "Ask him to substitute milk tea" }],
 };
+test("spacing retains rows, columns, distant groups and input order without mutating positions", () => {
+  const boxes = [
+    { id: "row-a", x: 500, y: 500, width: 200, height: 100 },
+    { id: "row-b", x: 650, y: 500, width: 200, height: 100 },
+    { id: "col-a", x: 1500, y: 500, width: 200, height: 100 },
+    { id: "col-b", x: 1500, y: 560, width: 200, height: 100 },
+    { id: "distant", x: 3000, y: 2200, width: 200, height: 100 },
+  ];
+  const original = structuredClone(boxes),
+    positions = optimizeSpacing(boxes);
+  assert.deepEqual(boxes, original);
+  assert.equal(positions.get("row-a")!.y, 500);
+  assert.equal(positions.get("row-b")!.y, 500);
+  assert(positions.get("row-b")!.x - positions.get("row-a")!.x >= 232);
+  assert.equal(positions.get("col-a")!.x, 1500);
+  assert.equal(positions.get("col-b")!.x, 1500);
+  assert(positions.get("col-b")!.y - positions.get("col-a")!.y >= 132);
+  assert.deepEqual(positions.get("distant"), { x: 3000, y: 2200 });
+  assert.equal(positions.get("row-a")!.x + positions.get("row-b")!.x, 1150);
+  assert.deepEqual(
+    readingOrder([
+      { id: "z", x: 0, y: 0 },
+      { id: "a", x: 0, y: 0 },
+    ]).map((item) => item.id),
+    ["z", "a"],
+  );
+  const separated = boxes.map((item) => ({
+    ...item,
+    ...positions.get(item.id),
+  }));
+  assert.deepEqual(optimizeSpacing(separated), positions);
+  assert.deepEqual(
+    arrangeBoxes(boxes, { mode: "spacing", gap: 32 }),
+    positions,
+  );
+  const uneven = optimizeSpacing([
+    { id: "wide", x: 500, y: 800, width: 800, height: 100 },
+    { id: "narrow", x: 650, y: 800, width: 100, height: 100 },
+  ]);
+  assert(uneven.get("narrow")!.x >= uneven.get("wide")!.x + 832);
+});
+test("spacing handles canvas edges and nearby pen strokes remain one intact sketch", () => {
+  const positions = optimizeSpacing([
+    { id: "a", x: 0, y: 0, width: 200, height: 100 },
+    { id: "b", x: 0, y: 0, width: 200, height: 100 },
+  ]);
+  assert.equal(positions.get("a")!.x, 0);
+  assert(positions.get("b")!.x >= 231);
+  const ink = [
+    {
+      id: "a",
+      points: [
+        [100, 100],
+        [150, 150],
+      ],
+    },
+    {
+      id: "b",
+      points: [
+        [155, 145],
+        [180, 120],
+      ],
+    },
+    {
+      id: "c",
+      points: [
+        [900, 900],
+        [950, 950],
+      ],
+    },
+  ] as any;
+  const groups = groupSketches(ink);
+  assert.equal(groups.length, 2);
+  assert.deepEqual(new Set(groups[0].ids), new Set(["a", "b"]));
+  assert.deepEqual(
+    {
+      x: groups[0].x,
+      y: groups[0].y,
+      width: groups[0].width,
+      height: groups[0].height,
+    },
+    { x: 100, y: 100, width: 80, height: 50 },
+  );
+  assert.throws(() =>
+    optimizeSpacing([
+      { id: "a", x: 0, y: 0, width: 5600, height: 3600 },
+      { id: "b", x: 0, y: 0, width: 5600, height: 3600 },
+    ]),
+  );
+});
 test("lesson schema enriches omitted fields, preserves manual positions and validates references before mutation", () => {
   const lesson = validateLesson(input);
   assert.match(lesson.objects[0].jyutping, /ngo5/);

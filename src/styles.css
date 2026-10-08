@@ -3527,7 +3527,12 @@ summary > svg,
 .canvas .conversation-card .dialogue-turn .inline-language[data-inline-activation="click"] * {
   cursor: text;
 }
-.lesson-tool-control { position: relative; flex: 0 0 auto; }
+.lesson-tool-control { position: relative; flex: 0 0 auto; display:flex; gap:3px; align-items:center; border-left:1px solid #e6eaf2; padding-left:7px; }
+.lesson-quick-action { display:flex; align-items:center; justify-content:center; width:30px; height:30px; border-radius:7px; background:transparent; color:#556480; padding:5px; }
+.lesson-quick-action:hover { background:#edf1f9; color:#3159e8; }
+.reveal-next-action { width:auto!important; gap:4px; padding:5px 7px; }
+.reveal-next-action small { font-size:10px; color:#7b8699; }
+.board-card[data-layout-moving=true] { will-change:translate; }
 .lesson-tools-menu > summary { list-style:none; cursor:pointer; padding:8px; border-radius:8px; display:flex; align-items:center; }
 .lesson-tools-menu > summary::-webkit-details-marker { display:none; }
 .lesson-tools-menu > summary:hover { background:#edf0f8; }

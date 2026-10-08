@@ -77,6 +77,152 @@ async function add(page: Page, text: string) {
   await page.getByLabel("Cantonese phrase").fill(text);
   await page.getByRole("button", { name: "Add phrase", exact: true }).click();
 }
+test("toolbar tidies nearby spacing with shared sliding, preserves the camera and undoes exactly", async ({
+  browser,
+}) => {
+  const teacher = await fixture(browser),
+    learner = await fixture(browser, "learner", teacher.room);
+  try {
+    await publishLesson(
+      {
+        version: 1,
+        title: "Spacing test",
+        layout: { mode: "manual" },
+        objects: [
+          {
+            id: "a",
+            kind: "phrase",
+            chinese: "你好",
+            definition: "Hello",
+            x: 2600,
+            y: 1600,
+          },
+          {
+            id: "b",
+            kind: "phrase",
+            chinese: "我想飲水",
+            definition: "I want water",
+            x: 2680,
+            y: 1600,
+          },
+        ],
+        connectors: [
+          { id: "edge", from: "a", to: "b", color: "#3159e8", width: 2 },
+        ],
+      },
+      teacher.room,
+      `ws://127.0.0.1:${relay.port}`,
+    );
+    await teacher.page
+      .locator(".canvas-viewport")
+      .click({ position: { x: 25, y: 25 } });
+    const cards = teacher.page.getByTestId("phrase-card");
+    await expect(learner.page.getByTestId("phrase-card")).toHaveCount(2);
+    const positions = () =>
+      cards.evaluateAll((nodes) =>
+        nodes.map((node) => ({
+          x: parseFloat((node as HTMLElement).style.left),
+          y: parseFloat((node as HTMLElement).style.top),
+        })),
+      );
+    const before = await positions();
+    const edge = teacher.page.locator("[data-connector-id] polyline").first();
+    const arrowBefore = await edge.getAttribute("points");
+    const learnerEdge = learner.page
+      .locator("[data-connector-id] polyline")
+      .first();
+    const learnerArrowBefore = await learnerEdge.getAttribute("points");
+    const camera = await teacher.page.locator(".canvas").getAttribute("style");
+    for (const page of [teacher.page, learner.page])
+      await page.evaluate(() => {
+        (window as any).layoutSeen = false;
+        (window as any).arrowFrames = 0;
+        const observer = new MutationObserver((records) => {
+          (window as any).arrowFrames += records.filter(
+            (record) => record.attributeName === "points",
+          ).length;
+          if (
+            records.some(
+              (record) => (record.target as HTMLElement).dataset?.layoutMoving,
+            )
+          )
+            (window as any).layoutSeen = true;
+        });
+        observer.observe(document.body, {
+          subtree: true,
+          attributes: true,
+          attributeFilter: ["data-layout-moving", "points"],
+        });
+      });
+    // The primary action is reachable without opening the secondary menu.
+    await expect(
+      teacher.page.getByRole("button", {
+        name: "Private teaching notes",
+        exact: true,
+      }),
+    ).toBeVisible();
+    await teacher.page
+      .getByRole("button", { name: "Arrange canvas", exact: true })
+      .click();
+    await expect
+      .poll(() => teacher.page.evaluate(() => (window as any).layoutSeen))
+      .toBe(true);
+    await expect
+      .poll(() => learner.page.evaluate(() => (window as any).layoutSeen))
+      .toBe(true);
+    await expect(teacher.page.locator("[data-layout-moving]")).toHaveCount(0);
+    expect(
+      await teacher.page.evaluate(() => (window as any).arrowFrames),
+    ).toBeGreaterThan(3);
+    expect(await edge.getAttribute("points")).not.toBe(arrowBefore);
+    await expect(learner.page.locator("[data-layout-moving]")).toHaveCount(0);
+    expect(await learnerEdge.getAttribute("points")).not.toBe(
+      learnerArrowBefore,
+    );
+    const learnerBoxes = await learner.page
+      .getByTestId("phrase-card")
+      .evaluateAll((nodes) =>
+        nodes.map((node) => ({
+          x: parseFloat((node as HTMLElement).style.left),
+          width: (node as HTMLElement).offsetWidth,
+        })),
+      );
+    expect(
+      learnerBoxes[1].x - learnerBoxes[0].x - learnerBoxes[0].width,
+    ).toBeGreaterThanOrEqual(31);
+    expect(await teacher.page.locator(".canvas").getAttribute("style")).toBe(
+      camera,
+    );
+    const after = await positions();
+    expect(after).not.toEqual(before);
+    after.forEach((position, index) =>
+      expect(
+        Math.hypot(position.x - before[index].x, position.y - before[index].y),
+      ).toBeLessThan(500),
+    );
+    await teacher.page
+      .getByRole("button", { name: "Undo", exact: true })
+      .click();
+    await expect.poll(positions).toEqual(before);
+    await teacher.page.emulateMedia({ reducedMotion: "reduce" });
+    await teacher.page.evaluate(() => {
+      (window as any).layoutSeen = false;
+    });
+    await teacher.page
+      .getByRole("button", { name: "Arrange canvas", exact: true })
+      .click();
+    await expect.poll(positions).not.toEqual(before);
+    expect(await teacher.page.evaluate(() => (window as any).layoutSeen)).toBe(
+      false,
+    );
+    await teacher.page.screenshot({
+      path: "test-results/lesson-toolbar-spacing.png",
+    });
+  } finally {
+    await teacher.context.close();
+    await learner.context.close();
+  }
+});
 test("live ink and selected drawing drags reach the partner before release, and ink-only auto-layout is available", async ({
   browser,
 }) => {
@@ -143,7 +289,7 @@ test("teacher private notes, one-by-one reveals and row controls sync to a learn
       .getByRole("button", { name: "Private teaching notes", exact: true })
       .click();
     await teacher.page
-      .getByLabel("Private teaching note")
+      .getByLabel("Private teaching note", { exact: true })
       .fill("SECRET teaching reminder");
     await expect(learner.page.locator("body")).not.toContainText(
       "SECRET teaching reminder",
@@ -198,9 +344,9 @@ test("teacher private notes, one-by-one reveals and row controls sync to a learn
     await teacher.page
       .getByRole("button", { name: "Private teaching notes", exact: true })
       .click();
-    await expect(teacher.page.getByLabel("Private teaching note")).toHaveValue(
-      "SECRET teaching reminder",
-    );
+    await expect(
+      teacher.page.getByLabel("Private teaching note", { exact: true }),
+    ).toHaveValue("SECRET teaching reminder");
   } finally {
     await teacher.context.close();
     await learner.context.close();

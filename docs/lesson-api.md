@@ -4,9 +4,9 @@ JyutBoard accepts a versioned JSON lesson using [lesson.schema.json](lesson.sche
 
 ## In the app
 
-The **… Lesson tools** menu on the canvas toolbar contains layout, conversion, reveal, private notes, sentence variations, and JSON import/export. It overlays the canvas and does not change viewport geometry. Tools adapt to selection and role.
+Frequently used actions sit directly on the canvas toolbar: tidy spacing, private teaching notes, hide/reveal selected content, reveal-next (with remaining count), and sentence variations. They adapt to selection and teacher role. The **… Lesson tools** menu contains conversion, lesson-wide reveal preparation, and JSON import/export. Floating panels overlay the canvas without changing viewport geometry.
 
-- **Arrange selected / canvas** lays out cards and drawing strokes with comfortable spacing. It runs once, changes no content, and can be undone. Manual dragging remains unchanged. Connectors follow their endpoints.
+- **Arrange selected / canvas** optimizes spacing locally, preserving existing rows, columns and distant topic groups instead of replacing the layout with a grid. Nearby pen strokes move together as a sketch. Phrase spacing accounts for both Chinese and Jyutping text without widening the cards. It runs once, changes no content, and can be undone. Elements slide into position over 360 ms on both participants; connected arrows follow continuously and the camera stays in place. Reduced-motion preferences skip animation. Manual dragging remains unchanged.
 - Select phrase cards with desktop Shift-click/marquee or iPad lasso. **Turn into conversation / table** preserves their top-to-bottom, left-to-right order, content, divisions, audio, favorites, notes, modes and reveal flags. The source cards are replaced in one undoable transaction. External arrows attach to the new collection; internal arrows disappear because their endpoints are now rows.
 - **Sentence variations** replaces the first occurrence of a selected Chinese word/phrase with up to twelve explicit substitutions. The surrounding sentence stays unchanged. New phrases use normal Jyutping/English enrichment; review their meaning as usual. Recordings and queue receipts are cleared because they belong to the original phrase. This is a controlled teaching pattern tool, not an unreviewed generative paraphraser.
 - **Private teaching notes** apply to the selected object, or the whole lesson when nothing is selected. They persist in local storage on Natasha's device, keyed by session. They never enter Yjs, the relay, ordinary backups, shared exports or JyutDeck queue payloads. They are hidden when using Leif's view. They are device-local and should not be used as a cloud notebook.
@@ -54,7 +54,7 @@ Direct publication rejects nonempty `teacherNotes` to ensure private material is
 | `title` | Required nonempty lesson name, at most 200 characters; imports append into the currently open lesson |
 | `scenario` | Public teaching context, at most 4,000 characters |
 | `objectives` | Up to 30 public goals, 500 characters each |
-| `layout` | `{mode: "manual" \| "grid" \| "column", x, y, gap, columns}`. Defaults: manual; origin 120,120; gap 40; columns 3. Grid/column run once, preserving array order. Manual preserves explicit coordinates. Overflow is rejected before mutation. |
+| `layout` | `{mode: "manual" \| "spacing" \| "grid" \| "column", x, y, gap, columns}`. Defaults: manual; origin 120,120; gap 40; columns 3. Grid/column run once, preserving array order. Manual preserves explicit coordinates. Spacing locally separates overlaps around the supplied coordinates. Grid and column remain available for explicitly generating new lesson structures. Overflow is rejected before mutation. |
 | `objects` | Up to 500 cards, notes, tables, conversations or stickers |
 | `strokes` | Up to 1,000 permanent pen/highlighter/arrow strokes |
 | `connectors` | Up to 1,000 arrows referring to object IDs |
