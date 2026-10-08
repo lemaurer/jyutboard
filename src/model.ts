@@ -8,6 +8,7 @@ export type Word = {
   state?: "new" | "learning" | "known" | "queued" | "unknown";
 };
 export type TableRow = {
+  concealed?: boolean;
   id: string;
   chinese: string;
   jyutping: string;
@@ -37,6 +38,7 @@ export type CardMode =
 export type CardShape = "rounded" | "sheet" | "sticky" | "bubble";
 export type SourceLanguage = "chinese" | "jyutping" | "english";
 export type Card = {
+  concealed?: boolean;
   id: string;
   kind: "phrase" | "note" | "table" | "sticker" | "conversation";
   chinese: string;
@@ -91,6 +93,11 @@ export type Session = {
   relay?: string;
 };
 export type Presence = {
+  move?: {
+    cards: { id: string; x: number; y: number }[];
+    strokes?: { id: string; x: number; y: number }[];
+    at: number;
+  } | null;
   id: string;
   role: Role;
   x?: number;
@@ -115,6 +122,7 @@ export function createCard(fields: Partial<Card> = {}): Card {
   return {
     id: crypto.randomUUID(),
     kind: "phrase",
+    concealed: false,
     chinese: "",
     jyutping: "",
     definition: "",
@@ -145,6 +153,7 @@ export function createCard(fields: Partial<Card> = {}): Card {
 }
 export function createTableRow(fields: Partial<TableRow> = {}): TableRow {
   return {
+    concealed: false,
     id: crypto.randomUUID(),
     chinese: "",
     jyutping: "",
@@ -247,6 +256,7 @@ const wordSchema = z.object({
   state: z.enum(["new", "learning", "known", "queued", "unknown"]).optional(),
 });
 export const tableRowSchema = z.object({
+  concealed: z.boolean().default(false),
   borderColor: z
     .string()
     .regex(/^#[0-9a-fA-F]{6}$/)
@@ -286,6 +296,7 @@ export const tableRowSchema = z.object({
   translation: z.string().max(200).default("local"),
 });
 export const cardSchema = z.object({
+  concealed: z.boolean().default(false),
   id: z.string().max(100),
   kind: z.enum(["phrase", "note", "table", "sticker", "conversation"]),
   chinese: z.string().max(2000),

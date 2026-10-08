@@ -129,14 +129,14 @@ test("tables translate locally, edit row notes, hide English and delete selected
   await table.getByRole("button", { name: "Add row" }).click();
   await expect(table.getByLabel("Chinese phrase")).toHaveCount(2);
   await table.getByLabel("Chinese phrase").nth(1).fill("食飯");
-  await page.getByRole("button", { name: "Leif" }).click();
+  await page.getByRole("button", { name: "Leif", exact: true }).click();
   await expect(table.getByText("ngo5 soeng2 jam2 seoi2")).toBeVisible();
   await expect(table.getByLabel("English translation").first()).toHaveValue(
     "I want water.",
   );
   await page.getByRole("button", { name: "Natasha" }).click();
   await page.getByLabel("Selected card mode").selectOption("practice");
-  await page.getByRole("button", { name: "Leif" }).click();
+  await page.getByRole("button", { name: "Leif", exact: true }).click();
   await expect(table.getByLabel("English translation")).toHaveCount(0);
   await table
     .locator("tbody tr")

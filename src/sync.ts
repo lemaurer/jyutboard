@@ -19,6 +19,7 @@ export class LiveSync {
   private attempt = 0;
   private ready = false;
   private latest?: Presence;
+  private presenceTimer?: ReturnType<typeof setTimeout>;
   constructor(
     private doc: Y.Doc,
     private room: string,
@@ -102,12 +103,62 @@ export class LiveSync {
   }
   presence(value: Presence) {
     this.latest = value;
-    if (this.ready) this.send({ type: "presence", presence: value });
+    // Latest-value backpressure: never queue a trail of stale pointer frames.
+    this.presenceTimer ??= setTimeout(() => {
+      this.presenceTimer = undefined;
+      if (
+        this.ready &&
+        this.latest &&
+        (this.socket?.bufferedAmount ?? 0) < 64000
+      ) {
+        const value = { ...this.latest };
+        // The existing relay has a 6 KB presence limit. Keep cursor/ink/motion
+        // together bounded, even for long phrases and large selected groups.
+        while (JSON.stringify(value).length > 5800) {
+          if (value.draft) value.draft = "";
+          else if (value.ink && value.ink.stroke.points.length > 8) {
+            const indices = value.ink.stroke.points
+              .map((_, i) => i)
+              .filter((i, _, all) => i % 2 === 0 || i === all.length - 1);
+            value.ink = {
+              ...value.ink,
+              stroke: {
+                ...value.ink.stroke,
+                points: indices.map((i) => value.ink!.stroke.points[i]),
+                pressures: value.ink.stroke.pressures
+                  ? indices.map((i) => value.ink!.stroke.pressures![i])
+                  : undefined,
+              },
+            };
+          } else if (value.laser && value.laser.points.length > 8)
+            value.laser = {
+              ...value.laser,
+              points: value.laser.points.filter(
+                (_, i, all) => i % 2 === 0 || i === all.length - 1,
+              ),
+            };
+          else if (value.move?.strokes?.length)
+            value.move = {
+              ...value.move,
+              strokes: value.move.strokes.slice(0, -1),
+            };
+          else if (value.move && value.move.cards.length > 1)
+            value.move = {
+              ...value.move,
+              cards: value.move.cards.slice(0, -1),
+            };
+          else break;
+        }
+        if (JSON.stringify(value).length <= 5800)
+          this.send({ type: "presence", presence: value });
+      }
+    }, 32);
   }
   destroy() {
     this.closed = true;
     clearTimeout(this.timer);
     clearTimeout(this.flushTimer);
+    clearTimeout(this.presenceTimer);
     this.pending = [];
     clearInterval(this.heartbeat);
     this.doc.off("update", this.update);

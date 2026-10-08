@@ -1,0 +1,558 @@
+{
+  "$ref": "#/definitions/JyutBoardLesson",
+  "definitions": {
+    "JyutBoardLesson": {
+      "type": "object",
+      "properties": {
+        "version": {
+          "type": "number",
+          "const": 1
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "scenario": {
+          "type": "string",
+          "maxLength": 4000,
+          "default": ""
+        },
+        "objectives": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 500
+          },
+          "maxItems": 30,
+          "default": []
+        },
+        "layout": {
+          "type": "object",
+          "properties": {
+            "mode": {
+              "type": "string",
+              "enum": [
+                "manual",
+                "grid",
+                "column"
+              ],
+              "default": "manual"
+            },
+            "gap": {
+              "type": "number",
+              "minimum": 16,
+              "maximum": 160,
+              "default": 40
+            },
+            "columns": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 8,
+              "default": 3
+            },
+            "x": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 5300,
+              "default": 120
+            },
+            "y": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 3300,
+              "default": 120
+            }
+          },
+          "additionalProperties": false,
+          "default": {}
+        },
+        "objects": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "concealed": {
+                "type": "boolean",
+                "default": false
+              },
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 100
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "phrase",
+                  "note",
+                  "table",
+                  "sticker",
+                  "conversation"
+                ]
+              },
+              "chinese": {
+                "type": "string",
+                "maxLength": 2000
+              },
+              "jyutping": {
+                "type": "string",
+                "maxLength": 4000
+              },
+              "definition": {
+                "type": "string",
+                "maxLength": 4000
+              },
+              "words": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "chinese": {
+                      "type": "string",
+                      "maxLength": 2000
+                    },
+                    "jyutping": {
+                      "type": "string",
+                      "maxLength": 2000
+                    },
+                    "definition": {
+                      "type": "string",
+                      "maxLength": 4000
+                    },
+                    "state": {
+                      "type": "string",
+                      "enum": [
+                        "new",
+                        "learning",
+                        "known",
+                        "queued",
+                        "unknown"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "chinese",
+                    "jyutping",
+                    "definition"
+                  ],
+                  "additionalProperties": false
+                },
+                "maxItems": 2000
+              },
+              "x": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 5300
+              },
+              "y": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 3300
+              },
+              "starred": {
+                "type": "boolean"
+              },
+              "created": {
+                "type": "number"
+              },
+              "translation": {
+                "type": "string",
+                "maxLength": 200
+              },
+              "mode": {
+                "type": "string",
+                "enum": [
+                  "full",
+                  "compact",
+                  "peek",
+                  "characters",
+                  "breakdown",
+                  "practice",
+                  "inline"
+                ],
+                "default": "full"
+              },
+              "shape": {
+                "type": "string",
+                "enum": [
+                  "rounded",
+                  "sheet",
+                  "sticky",
+                  "bubble"
+                ],
+                "default": "rounded"
+              },
+              "tableVariant": {
+                "type": "string",
+                "enum": [
+                  "phrases",
+                  "vocabulary",
+                  "pattern",
+                  "qa",
+                  "comparison"
+                ],
+                "default": "phrases"
+              },
+              "tableStyle": {
+                "type": "string",
+                "enum": [
+                  "minimal",
+                  "ruled",
+                  "cards"
+                ],
+                "default": "minimal"
+              },
+              "rows": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "concealed": {
+                      "type": "boolean",
+                      "default": false
+                    },
+                    "borderColor": {
+                      "type": "string",
+                      "pattern": "^#[0-9a-fA-F]{6}$",
+                      "default": "#aab8cc"
+                    },
+                    "borderWidth": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 6,
+                      "default": 0
+                    },
+                    "borderStyle": {
+                      "type": "string",
+                      "enum": [
+                        "solid",
+                        "dashed",
+                        "dotted"
+                      ],
+                      "default": "solid"
+                    },
+                    "audio": {
+                      "type": "string",
+                      "maxLength": 2800000,
+                      "pattern": "^data:audio\\/[\\w.+-]+(?:;[^,]*)?;base64,[A-Za-z0-9+/=]+$"
+                    },
+                    "audioName": {
+                      "type": "string",
+                      "maxLength": 200
+                    },
+                    "starred": {
+                      "type": "boolean",
+                      "default": false
+                    },
+                    "mode": {
+                      "type": "string",
+                      "enum": [
+                        "full",
+                        "compact",
+                        "peek",
+                        "characters",
+                        "breakdown",
+                        "practice",
+                        "inline"
+                      ]
+                    },
+                    "receipt": {
+                      "type": "string",
+                      "maxLength": 500
+                    },
+                    "persona": {
+                      "type": "string",
+                      "maxLength": 80,
+                      "default": "Natasha"
+                    },
+                    "avatar": {
+                      "type": "string",
+                      "maxLength": 40,
+                      "default": "natasha"
+                    },
+                    "answerChinese": {
+                      "type": "string",
+                      "maxLength": 2000,
+                      "default": ""
+                    },
+                    "answerJyutping": {
+                      "type": "string",
+                      "maxLength": 4000,
+                      "default": ""
+                    },
+                    "answerDefinition": {
+                      "type": "string",
+                      "maxLength": 4000,
+                      "default": ""
+                    },
+                    "id": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 100
+                    },
+                    "chinese": {
+                      "type": "string",
+                      "maxLength": 2000
+                    },
+                    "jyutping": {
+                      "type": "string",
+                      "maxLength": 4000
+                    },
+                    "definition": {
+                      "type": "string",
+                      "maxLength": 4000
+                    },
+                    "note": {
+                      "type": "string",
+                      "maxLength": 4000,
+                      "default": ""
+                    },
+                    "words": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/definitions/JyutBoardLesson/properties/objects/items/properties/words/items"
+                      },
+                      "maxItems": 2000
+                    },
+                    "translation": {
+                      "type": "string",
+                      "maxLength": 200,
+                      "default": "local"
+                    }
+                  },
+                  "required": [
+                    "id"
+                  ],
+                  "additionalProperties": false
+                },
+                "maxItems": 500
+              },
+              "hideEnglishForLearner": {
+                "type": "boolean",
+                "default": false
+              },
+              "sourceLanguage": {
+                "type": "string",
+                "enum": [
+                  "chinese",
+                  "jyutping",
+                  "english"
+                ],
+                "default": "chinese"
+              },
+              "note": {
+                "type": "string",
+                "maxLength": 4000,
+                "default": ""
+              },
+              "sticker": {
+                "type": "string",
+                "maxLength": 64,
+                "default": "star"
+              },
+              "width": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1400,
+                "default": 0
+              },
+              "height": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1400,
+                "default": 0
+              },
+              "textScale": {
+                "type": "number",
+                "minimum": 0.5,
+                "maximum": 3,
+                "default": 1
+              },
+              "tint": {
+                "type": "string",
+                "pattern": "^$|^#[0-9a-fA-F]{6}$",
+                "default": ""
+              },
+              "borderColor": {
+                "type": "string",
+                "pattern": "^#[0-9a-fA-F]{6}$",
+                "default": "#aab8cc"
+              },
+              "borderWidth": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 6,
+                "default": 0
+              },
+              "borderStyle": {
+                "type": "string",
+                "enum": [
+                  "solid",
+                  "dashed",
+                  "dotted"
+                ],
+                "default": "solid"
+              },
+              "audio": {
+                "type": "string",
+                "maxLength": 2800000,
+                "pattern": "^data:audio\\/[\\w.+-]+(?:;[^,]*)?;base64,[A-Za-z0-9+/=]+$"
+              },
+              "audioName": {
+                "type": "string",
+                "maxLength": 200
+              },
+              "receipt": {
+                "type": "string",
+                "maxLength": 500
+              }
+            },
+            "required": [
+              "id",
+              "kind"
+            ],
+            "additionalProperties": false
+          },
+          "maxItems": 500
+        },
+        "strokes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "pressures": {
+                "type": "array",
+                "items": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1
+                },
+                "maxItems": 5000
+              },
+              "id": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "points": {
+                "type": "array",
+                "items": {
+                  "type": "array",
+                  "minItems": 2,
+                  "maxItems": 2,
+                  "items": [
+                    {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 5600
+                    },
+                    {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 3600
+                    }
+                  ]
+                },
+                "maxItems": 5000
+              },
+              "color": {
+                "type": "string",
+                "pattern": "^#[0-9a-fA-F]{6}$"
+              },
+              "arrow": {
+                "type": "boolean"
+              },
+              "width": {
+                "type": "number",
+                "minimum": 1,
+                "maximum": 60
+              },
+              "opacity": {
+                "type": "number",
+                "minimum": 0.1,
+                "maximum": 1
+              }
+            },
+            "required": [
+              "id",
+              "points",
+              "color",
+              "arrow"
+            ],
+            "additionalProperties": false
+          },
+          "maxItems": 1000,
+          "default": []
+        },
+        "connectors": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "from": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "to": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "color": {
+                "type": "string",
+                "pattern": "^#[0-9a-fA-F]{6}$"
+              },
+              "width": {
+                "type": "number",
+                "minimum": 1,
+                "maximum": 12
+              }
+            },
+            "required": [
+              "id",
+              "from",
+              "to",
+              "color",
+              "width"
+            ],
+            "additionalProperties": false
+          },
+          "maxItems": 1000,
+          "default": []
+        },
+        "teacherNotes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "objectId": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "text": {
+                "type": "string",
+                "maxLength": 8000
+              }
+            },
+            "required": [
+              "text"
+            ],
+            "additionalProperties": false
+          },
+          "maxItems": 500,
+          "default": []
+        }
+      },
+      "required": [
+        "version",
+        "title",
+        "objects"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}

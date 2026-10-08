@@ -1,12 +1,14 @@
 {
   "name": "jyutboard",
-  "version": "0.7.1",
+  "version": "0.8.0",
   "description": "A shared Cantonese teaching desk for Natasha and Leif",
   "author": "Leif Maurer",
   "license": "MIT",
   "private": true,
   "main": "dist-electron/main.cjs",
   "scripts": {
+    "mcp:lessons": "tsx server/lesson-mcp.ts",
+    "schema:lesson": "tsx scripts/lesson-schema.ts",
     "dev": "node scripts/dev.mjs",
     "dev:web": "vite --host 127.0.0.1",
     "build": "npm run build:web && node scripts/build-electron.mjs",
@@ -34,6 +36,7 @@
     "zod": "^3.25.76"
   },
   "devDependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.1",
     "@playwright/test": "^1.56.0",
     "@types/node": "^22.19.0",
     "@types/react": "^19.2.0",
@@ -46,7 +49,8 @@
     "esbuild": "^0.25.12",
     "tsx": "^4.23.0",
     "typescript": "^5.9.3",
-    "vite": "^6.4.1"
+    "vite": "^6.4.1",
+    "zod-to-json-schema": "^3.25.2"
   },
   "build": {
     "appId": "app.jyutdeck.jyutboard",

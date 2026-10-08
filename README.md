@@ -1,5 +1,7 @@
 # JyutBoard
 
+Lesson preparation tools are available in the compact **… Lesson tools** menu: undoable auto-layout, private teaching notes, progressive reveal, sentence substitutions and selected-card conversion. AI assistants can generate complete canvases through the versioned JSON schema and optional MCP server. See [lesson API and teaching tools](docs/lesson-api.md) for setup, schemas, privacy behavior and examples.
+
 A live teaching canvas for learning Cantonese together. Natasha writes naturally in Chinese; Leif sees Jyutping first. Both views share movable phrase cards, dense phrase tables, notes, drawings, pronunciation recordings, and a session tray.
 
 **[Download JyutBoard](https://jyutboard.vercel.app/download.html)** · [Mac · Apple silicon](https://github.com/lemaurer/jyutboard/releases/latest/download/JyutBoard-Mac-Apple-Silicon.dmg) · [Mac · Intel](https://github.com/lemaurer/jyutboard/releases/latest/download/JyutBoard-Mac-Intel.dmg) · [Windows installer](https://github.com/lemaurer/jyutboard/releases/latest/download/JyutBoard-Setup.exe)

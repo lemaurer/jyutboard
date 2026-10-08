@@ -7,7 +7,15 @@ import {
 import { PushToTalk } from "./PushToTalk";
 import type { SourceLanguage, Card, TableRow } from "./model";
 import { PersonAvatar, PERSONAS, AVATARS } from "./PersonAvatar";
-import { Plus, Star, X, MoreHorizontal, Volume2 } from "lucide-react";
+import {
+  Plus,
+  Star,
+  X,
+  MoreHorizontal,
+  Volume2,
+  Eye,
+  EyeOff,
+} from "lucide-react";
 export function Conversation({
   card,
   teacher,
@@ -45,6 +53,7 @@ export function Conversation({
   return (
     <div className="conversation-turns">
       {card.rows.map((row, index) => {
+        if (!teacher && row.concealed) return null;
         const mode = row.mode ?? card.mode;
         const showEnglish = mode !== "practice";
         const avatar =
@@ -53,6 +62,7 @@ export function Conversation({
         return (
           <div
             key={row.id}
+            style={{ opacity: teacher && row.concealed ? 0.5 : undefined }}
             className={`dialogue-turn ${index % 2 ? "turn-right" : "turn-left"} ${selectedRow === row.id ? "turn-selected" : ""}`}
             onClick={(e) => {
               e.stopPropagation();
@@ -220,6 +230,16 @@ export function Conversation({
                   <MoreHorizontal size={14} />
                 </summary>
                 <div>
+                  {teacher && (
+                    <button
+                      onClick={() =>
+                        onChange(row, { concealed: !row.concealed })
+                      }
+                    >
+                      {row.concealed ? <Eye size={12} /> : <EyeOff size={12} />}{" "}
+                      {row.concealed ? "Reveal turn" : "Hide turn from Leif"}
+                    </button>
+                  )}
                   <label>
                     Bubble mode
                     <select

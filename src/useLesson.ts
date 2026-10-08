@@ -14,7 +14,7 @@ import {
 } from "./model";
 import { LiveSync } from "./sync";
 
-function validPresence(value: Presence): boolean {
+export function validPresence(value: Presence): boolean {
   const validPoint = (number: unknown, max: number) =>
     number === undefined ||
     (typeof number === "number" &&
@@ -23,40 +23,68 @@ function validPresence(value: Presence): boolean {
       number <= max);
   return Boolean(
     value &&
-    typeof value.id === "string" &&
-    value.id.length <= 100 &&
-    ["teacher", "learner"].includes(value.role) &&
-    validPoint(value.x, 5600) &&
-    validPoint(value.y, 3600) &&
-    (value.view === undefined ||
-      (typeof value.view.x === "number" &&
-        typeof value.view.y === "number" &&
-        typeof value.view.zoom === "number" &&
-        value.view.zoom >= 0.35 &&
-        validPoint(value.view.x, 5600) &&
-        validPoint(value.view.y, 3600) &&
-        validPoint(value.view.zoom, 2.5))) &&
-    (value.attentionAt === undefined ||
-      validPoint(value.attentionAt, Date.now() + 60000)) &&
-    (value.laser === undefined ||
-      (typeof value.laser.at === "number" &&
-        value.laser.at <= Date.now() + 60000 &&
-        Array.isArray(value.laser.points) &&
-        value.laser.points.length <= 96 &&
-        value.laser.points.every(
-          (point) =>
-            Array.isArray(point) &&
-            point.length === 2 &&
-            validPoint(point[0], 5600) &&
-            validPoint(point[1], 3600),
-        ))) &&
-    (value.ink === undefined ||
-      value.ink === null ||
-      (typeof value.ink.at === "number" &&
-        value.ink.at <= Date.now() + 60000 &&
-        value.ink.stroke?.points?.length <= 100 &&
-        strokeSchema.safeParse(value.ink.stroke).success)) &&
-    (value.presenting === undefined || typeof value.presenting === "boolean"),
+      typeof value.id === "string" &&
+      value.id.length <= 100 &&
+      ["teacher", "learner"].includes(value.role) &&
+      (value.move === undefined ||
+        value.move === null ||
+        (typeof value.move.at === "number" &&
+          Number.isFinite(value.move.at) &&
+          value.move.at <= Date.now() + 60000 &&
+          Array.isArray(value.move.cards) &&
+          value.move.cards.length <= 24 &&
+          (value.move.strokes === undefined ||
+            (Array.isArray(value.move.strokes) &&
+              value.move.strokes.length + value.move.cards.length <= 24 &&
+              value.move.strokes.every(
+                (stroke) =>
+                  typeof stroke.id === "string" &&
+                  stroke.id.length <= 100 &&
+                  typeof stroke.x === "number" &&
+                  typeof stroke.y === "number" &&
+                  validPoint(stroke.x, 5600) &&
+                  validPoint(stroke.y, 3600),
+              ))) &&
+          value.move.cards.every(
+            (card) =>
+              typeof card.id === "string" &&
+              card.id.length <= 100 &&
+              typeof card.x === "number" &&
+              typeof card.y === "number" &&
+              validPoint(card.x, 5300) &&
+              validPoint(card.y, 3300),
+          ))) &&
+      validPoint(value.x, 5600) &&
+      validPoint(value.y, 3600) &&
+      (value.view === undefined ||
+        (typeof value.view.x === "number" &&
+          typeof value.view.y === "number" &&
+          typeof value.view.zoom === "number" &&
+          value.view.zoom >= 0.35 &&
+          validPoint(value.view.x, 5600) &&
+          validPoint(value.view.y, 3600) &&
+          validPoint(value.view.zoom, 2.5))) &&
+      (value.attentionAt === undefined ||
+        validPoint(value.attentionAt, Date.now() + 60000)) &&
+      (value.laser === undefined ||
+        (typeof value.laser.at === "number" &&
+          value.laser.at <= Date.now() + 60000 &&
+          Array.isArray(value.laser.points) &&
+          value.laser.points.length <= 96 &&
+          value.laser.points.every(
+            (point) =>
+              Array.isArray(point) &&
+              point.length === 2 &&
+              validPoint(point[0], 5600) &&
+              validPoint(point[1], 3600),
+          ))) &&
+      (value.ink === undefined ||
+        value.ink === null ||
+        (typeof value.ink.at === "number" &&
+          value.ink.at <= Date.now() + 60000 &&
+          value.ink.stroke?.points?.length <= 100 &&
+          strokeSchema.safeParse(value.ink.stroke).success)) &&
+      (value.presenting === undefined || typeof value.presenting === "boolean"),
   );
 }
 export function useLesson(session: Session, role: Role) {
@@ -164,24 +192,48 @@ export function useLesson(session: Session, role: Role) {
       setStatus("Solo lesson");
       return;
     }
+    let peerTimer: ReturnType<typeof setTimeout> | undefined;
+    const pendingPeers = new Map<string, Presence>();
     const live = new LiveSync(
       doc,
       session.id,
       session.relay,
       id.current,
       setStatus,
-      (presence, removed) =>
-        setPeers((previous) => {
-          const next = { ...previous };
-          if (removed) delete next[removed];
-          else if (presence && validPresence(presence))
-            next[presence.id] = presence;
-          return next;
-        }),
+      (presence, removed) => {
+        if (presence && validPresence(presence)) {
+          // Motion paints directly at network cadence; ancillary UI refreshes
+          // at most 15 Hz, rather than rerendering every card per ink sample.
+          window.dispatchEvent(
+            new CustomEvent("jyutboard:motion", { detail: presence }),
+          );
+          pendingPeers.set(presence.id, presence);
+          peerTimer ??= setTimeout(() => {
+            peerTimer = undefined;
+            setPeers((previous) => ({
+              ...previous,
+              ...Object.fromEntries(pendingPeers),
+            }));
+            pendingPeers.clear();
+          }, 66);
+        }
+        if (removed) {
+          pendingPeers.delete(removed);
+          window.dispatchEvent(
+            new CustomEvent("jyutboard:motion-leave", { detail: removed }),
+          );
+          setPeers((previous) => {
+            const next = { ...previous };
+            delete next[removed];
+            return next;
+          });
+        }
+      },
     );
     sync.current = live;
     live.presence(latest.current);
     return () => {
+      clearTimeout(peerTimer);
       live.destroy();
       sync.current = null;
     };

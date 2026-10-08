@@ -1,6 +1,7 @@
 import { HandwriteLayer, type HandwriteHandle } from "./HandwriteLayer";
 import { InlineLanguage } from "./InlineLanguage";
 import { CardBorder } from "./CardBorder";
+import { LiveInk, RemoteInk, type LiveInkHandle } from "./LiveInk";
 import { phraseInput, inputLanguage } from "./phraseInput";
 import { ZoomMotion } from "./ZoomMotion";
 import { canvasBoundary } from "./canvasBoundary";
@@ -96,6 +97,16 @@ import { useLesson } from "./useLesson";
 import { AudioRecorder } from "./AudioRecorder";
 import { CanvasTable } from "./CanvasTable";
 import { Conversation } from "./Conversation";
+import { LessonTools } from "./LessonMenu";
+import {
+  arrangeBoxes,
+  convertSelection,
+  exportLesson,
+  importLesson,
+  readingOrder,
+  revealNext,
+  sentenceVariants,
+} from "./lessonTools";
 import { PersonAvatar } from "./PersonAvatar";
 import { PushToTalk } from "./PushToTalk";
 import {
@@ -209,7 +220,11 @@ export default function App() {
   const creatingRef = useRef(false);
   const tablet = matchMedia("(pointer: coarse)").matches;
   const lesson = useLesson(session, role);
-  const { doc, cards, strokes, connectors, peers, status, saved } = lesson;
+  const { doc, strokes, connectors, peers, status, saved } = lesson;
+  const cards =
+    role === "teacher"
+      ? lesson.cards
+      : lesson.cards.filter((card) => !card.concealed);
   const currentDocument = useRef(doc);
   currentDocument.current = doc;
   const [selected, setSelected] = useState<string | null>(null);
@@ -299,7 +314,7 @@ export default function App() {
   const [highlightedPeer, setHighlightedPeer] = useState<string | null>(null);
   const [zoom, setZoom] = useState(1);
   const zoomRef = useRef(1);
-  const [pending, setPending] = useState<Stroke | null>(null);
+  const liveInk = useRef<LiveInkHandle>(null);
   const [sending, setSending] = useState(false);
   const [renaming, setRenaming] = useState(false);
   const board = useRef<HTMLDivElement>(null);
@@ -493,9 +508,9 @@ export default function App() {
           target.closest<SVGElement>("[data-stroke-id]")?.dataset.strokeId;
         return Boolean(
           id &&
-          (event.pointerType === "touch" ||
-            navigationRef.current.selectedItems.has(id)) &&
-          !["laser", "erase", "handwrite"].includes(toolRef.current),
+            (event.pointerType === "touch" ||
+              navigationRef.current.selectedItems.has(id)) &&
+            !["laser", "erase", "handwrite"].includes(toolRef.current),
         );
       },
       undefined,
@@ -585,7 +600,161 @@ export default function App() {
     undefined,
   );
   const active = cards.find((card) => card.id === selected);
-  const activeRow = active?.rows.find((row) => row.id === selectedRow);
+  const remoteCards = useRef(cards);
+  const remoteStrokes = useRef(strokes);
+  remoteStrokes.current = strokes;
+  const remotePositions = useRef(
+    new Map<string, { x: number; y: number; kind?: "stroke" }>(),
+  );
+  remoteCards.current = cards;
+  useLayoutEffect(() => {
+    for (const [id, position] of remotePositions.current) {
+      if (position.kind === "stroke") {
+        const stroke = remoteStrokes.current.find((stroke) => stroke.id === id);
+        const node = board.current?.querySelector<SVGElement>(
+          `[data-stroke-id="${id}"]`,
+        );
+        if (
+          stroke &&
+          node &&
+          !drag.current?.strokes.some((stroke) => stroke.id === id)
+        ) {
+          const box = pointsBox(stroke.points);
+          node.setAttribute(
+            "transform",
+            `translate(${position.x - box.x} ${position.y - box.y})`,
+          );
+        }
+        continue;
+      }
+      const card = cards.find((card) => card.id === id),
+        node = cardElements.current.get(id);
+      if (card && node && !drag.current?.cards.some((card) => card.id === id))
+        node.style.translate = `${position.x - card.x}px ${position.y - card.y}px`;
+    }
+  }, [lesson.cards, lesson.strokes]);
+  useEffect(() => {
+    const motions = new Map<string, { ids: string[]; at: number }>();
+    let frame = 0;
+    const queued = new Map<string, import("./model").Presence>();
+    const clear = (id: string) => {
+      for (const cardId of motions.get(id)?.ids || []) {
+        if (remotePositions.current.get(cardId)?.kind === "stroke") {
+          remotePositions.current.delete(cardId);
+          const node = board.current?.querySelector<SVGElement>(
+            `[data-stroke-id="${cardId}"]`,
+          );
+          if (
+            node &&
+            !drag.current?.strokes.some((stroke) => stroke.id === cardId)
+          ) {
+            node.removeAttribute("transform");
+            delete node.dataset.remoteMoving;
+          }
+          continue;
+        }
+        remotePositions.current.delete(cardId);
+        if (!drag.current?.cards.some((card) => card.id === cardId)) {
+          const node = cardElements.current.get(cardId);
+          if (node) {
+            node.style.translate = "";
+            delete node.dataset.remoteMoving;
+          }
+        }
+      }
+      paintConnectors(
+        remoteCards.current.filter((card) =>
+          motions.get(id)?.ids.includes(card.id),
+        ),
+        0,
+        0,
+      );
+      motions.delete(id);
+    };
+    const receive = (event: Event) => {
+      const peer = (event as CustomEvent<import("./model").Presence>).detail;
+      queued.set(peer.id, peer);
+      if (frame) return;
+      frame = requestAnimationFrame(() => {
+        frame = 0;
+        for (const peer of queued.values()) {
+          clear(peer.id);
+          if (!peer.move || Date.now() - peer.move.at > 2500) continue;
+          const moved: Card[] = [];
+          for (const motion of peer.move.cards) {
+            const card = remoteCards.current.find(
+              (card) => card.id === motion.id,
+            );
+            if (
+              !card ||
+              drag.current?.cards.some((card) => card.id === motion.id)
+            )
+              continue;
+            const node = cardElements.current.get(card.id);
+            if (node) {
+              node.dataset.remoteMoving = "true";
+              node.style.translate = `${motion.x - card.x}px ${motion.y - card.y}px`;
+            }
+            remotePositions.current.set(card.id, { x: motion.x, y: motion.y });
+            moved.push({ ...card, x: motion.x, y: motion.y });
+          }
+          const strokeIds: string[] = [];
+          for (const motion of peer.move.strokes || []) {
+            const stroke = remoteStrokes.current.find(
+              (stroke) => stroke.id === motion.id,
+            );
+            if (
+              !stroke ||
+              drag.current?.strokes.some((stroke) => stroke.id === motion.id)
+            )
+              continue;
+            const node = board.current?.querySelector<SVGElement>(
+              `[data-stroke-id="${stroke.id}"]`,
+            );
+            if (node) {
+              const box = pointsBox(stroke.points);
+              node.dataset.remoteMoving = "true";
+              node.setAttribute(
+                "transform",
+                `translate(${motion.x - box.x} ${motion.y - box.y})`,
+              );
+            }
+            remotePositions.current.set(stroke.id, {
+              x: motion.x,
+              y: motion.y,
+              kind: "stroke",
+            });
+            strokeIds.push(stroke.id);
+          }
+          motions.set(peer.id, {
+            ids: [...moved.map((card) => card.id), ...strokeIds],
+            at: Date.now(),
+          });
+          // The connector painter accepts positions as its first argument.
+          paintConnectors(moved, 0, 0);
+        }
+        queued.clear();
+      });
+    };
+    const leave = (event: Event) =>
+      clear((event as CustomEvent<string>).detail);
+    window.addEventListener("jyutboard:motion", receive);
+    window.addEventListener("jyutboard:motion-leave", leave);
+    const timer = setInterval(() => {
+      for (const [id, motion] of motions)
+        if (Date.now() - motion.at > 2500) clear(id);
+    }, 500);
+    return () => {
+      cancelAnimationFrame(frame);
+      clearInterval(timer);
+      for (const id of motions.keys()) clear(id);
+      window.removeEventListener("jyutboard:motion", receive);
+      window.removeEventListener("jyutboard:motion-leave", leave);
+    };
+  }, [session.id, connectors, cardSizes]);
+  const activeRow = active?.rows.find(
+    (row) => row.id === selectedRow && (role === "teacher" || !row.concealed),
+  );
   const teacher = role === "teacher";
   useEffect(() => {
     if (tablet) setSourceLanguage(role === "teacher" ? "chinese" : "jyutping");
@@ -593,7 +762,7 @@ export default function App() {
   const stars = cards.flatMap((card) =>
     card.kind === "conversation"
       ? card.rows
-          .filter((row) => row.starred)
+          .filter((row) => row.starred && (teacher || !row.concealed))
           .map((row) => conversationPhrase(card, row))
       : card.starred && card.kind === "phrase"
         ? [card]
@@ -1306,7 +1475,7 @@ export default function App() {
       width: tool === "highlight" ? highlightWidth : inkWidth,
       opacity: tool === "highlight" ? 0.46 : 1,
     };
-    setPending(path.current);
+    liveInk.current?.paint(path.current);
     event.currentTarget.setPointerCapture(event.pointerId);
   }
   function pointerMove(event: PointerEvent) {
@@ -1414,6 +1583,22 @@ export default function App() {
       const moveX = clamp(dx, -minX, BOARD_WIDTH - maxX),
         moveY = clamp(dy, -minY, BOARD_HEIGHT - maxY);
       snapshot.move = [moveX, moveY];
+      lesson.presence({
+        move: {
+          cards: snapshot.cards.slice(0, 24).map((card) => ({
+            id: card.id,
+            x: card.x + moveX,
+            y: card.y + moveY,
+          })),
+          strokes: snapshot.strokes
+            .slice(0, Math.max(0, 24 - snapshot.cards.length))
+            .map((stroke) => {
+              const box = pointsBox(stroke.points);
+              return { id: stroke.id, x: box.x + moveX, y: box.y + moveY };
+            }),
+          at: Date.now(),
+        },
+      });
       cancelAnimationFrame(dragFrame.current);
       dragFrame.current = requestAnimationFrame(() => {
         paintConnectors(snapshot.cards, moveX, moveY);
@@ -1437,7 +1622,7 @@ export default function App() {
           if (stroke.pressures) stroke.pressures.push(sample.pressure || 0.5);
         }
       }
-      setPending({ ...stroke, points: [...stroke.points] });
+      liveInk.current?.paint(stroke);
       if (Date.now() - lastInkPresence.current > 32) {
         const indices = stroke.points
           .map((_, i) => i)
@@ -1466,11 +1651,13 @@ export default function App() {
     const ids = new Set(moving.map((card) => card.id));
     for (const connector of connectors) {
       if (!ids.has(connector.from) && !ids.has(connector.to)) continue;
-      const a = cards.find((card) => card.id === connector.from),
-        b = cards.find((card) => card.id === connector.to);
+      const a = remoteCards.current.find((card) => card.id === connector.from),
+        b = remoteCards.current.find((card) => card.id === connector.to);
       if (!a || !b) continue;
       const box = (card: Card) => {
-        const value = cardBox(card);
+        const value = cardBox(
+          moving.find((item) => item.id === card.id) || card,
+        );
         return ids.has(card.id)
           ? { ...value, x: value.x + dx, y: value.y + dy }
           : value;
@@ -1496,6 +1683,7 @@ export default function App() {
         ?.querySelector(`[data-stroke-id="${stroke.id}"]`)
         ?.removeAttribute("transform");
     drag.current = null;
+    if (snapshot) lesson.presence({ move: null });
     if (board.current) delete board.current.dataset.gesture;
   }
   function endPointer(event?: { clientX: number; clientY: number }) {
@@ -1578,7 +1766,7 @@ export default function App() {
         doc.getMap<Stroke>("strokes").set(path.current.id, path.current);
       path.current = null;
       lesson.presence({ ink: null });
-      setPending(null);
+      liveInk.current?.paint(null);
       lesson.stopCapturing();
     }
   }
@@ -2059,6 +2247,7 @@ export default function App() {
     });
   }
   function cardStyle(card: Card): CSSProperties {
+    // Concealed objects remain visible as subdued teaching previews for Natasha.
     return {
       left: card.x,
       top: card.y,
@@ -2204,6 +2393,65 @@ export default function App() {
     doc.transact(() =>
       items.forEach((card) => patchCard(doc, card.id, { [axis]: target })),
     );
+    lesson.stopCapturing();
+  }
+  function arrangeLesson(all: boolean) {
+    if (!doc) return;
+    const items = readingOrder(
+      cards.filter((card) => all || selectedItems.has(card.id)),
+    );
+    const ink = strokes.filter((stroke) => all || selectedItems.has(stroke.id));
+    const boxes = [
+      ...items.map((card) => ({ ...cardBox(card), id: card.id })),
+      ...ink.map((stroke) => ({ ...pointsBox(stroke.points), id: stroke.id })),
+    ];
+    if (!boxes.length) return;
+    const positions = arrangeBoxes(boxes, {
+      mode: "grid",
+      columns: Math.min(3, boxes.length),
+      x: Math.min(...boxes.map((box) => box.x), 1200),
+      y: Math.min(...boxes.map((box) => box.y), 1000),
+    });
+    lesson.stopCapturing();
+    doc.transact(() => {
+      items.forEach((card) => patchCard(doc, card.id, positions.get(card.id)!));
+      ink.forEach((stroke) => {
+        const box = pointsBox(stroke.points),
+          position = positions.get(stroke.id)!;
+        doc.getMap<Stroke>("strokes").set(stroke.id, {
+          ...stroke,
+          points: stroke.points.map(([x, y]) => [
+            x + position.x - box.x,
+            y + position.y - box.y,
+          ]),
+        });
+      });
+    });
+    lesson.stopCapturing();
+    const first = positions.get(boxes[0].id)!;
+    centerView(first.x + boxes[0].width / 2, first.y + boxes[0].height / 2);
+  }
+  function hideLesson(all: boolean, concealed: boolean) {
+    if (!doc || !teacher) return;
+    lesson.stopCapturing();
+    doc.transact(() => {
+      if (!all && active && activeRow) {
+        patchTableRow(doc, active.id, activeRow.id, { concealed });
+        return;
+      }
+      cards
+        .filter((card) => all || selectedItems.has(card.id))
+        .forEach((card) => {
+          // Collections reveal their rows individually; standalone objects reveal whole.
+          patchCard(doc, card.id, {
+            concealed: all && card.rows.length ? false : concealed,
+          });
+          if (all)
+            card.rows.forEach((row) =>
+              patchTableRow(doc, card.id, row.id, { concealed }),
+            );
+        });
+    });
     lesson.stopCapturing();
   }
   function updateWords(words: Word[]) {
@@ -2871,6 +3119,82 @@ export default function App() {
                   <Zap size={18} />
                 </button>
               </div>
+              <LessonTools
+                teacher={teacher}
+                hasSelection={selectedItems.size > 0}
+                selected={cards.filter((card) => selectedItems.has(card.id))}
+                active={active}
+                sessionId={session.id}
+                notify={notify}
+                onArrange={arrangeLesson}
+                onHide={hideLesson}
+                onReveal={() => {
+                  if (doc) {
+                    lesson.stopCapturing();
+                    const revealed = revealNext(doc, cards);
+                    lesson.stopCapturing();
+                    if (!revealed) notify("Everything is revealed.");
+                  }
+                }}
+                onConvert={(kind) => {
+                  if (!doc) return;
+                  lesson.stopCapturing();
+                  const target = convertSelection(
+                    doc,
+                    cards.filter((card) => selectedItems.has(card.id)),
+                    kind,
+                  );
+                  lesson.stopCapturing();
+                  selectCard(target.id);
+                  return target;
+                }}
+                onVariants={async (slot, replacements) => {
+                  if (!doc || !active || !teacher) return;
+                  const document = doc;
+                  const variants = sentenceVariants(active, slot, replacements);
+                  const box = cardBox(active);
+                  const positions = arrangeBoxes(
+                    variants.map((estimated) => ({
+                      ...cardBox(estimated),
+                      id: estimated.id,
+                    })),
+                    {
+                      mode: "column",
+                      x: Math.min(active.x + box.width + 40, 4900),
+                      y: Math.min(active.y, 1000),
+                    },
+                  );
+                  lesson.stopCapturing();
+                  document.transact(() =>
+                    variants.forEach((card) =>
+                      addCard(document, { ...card, ...positions.get(card.id) }),
+                    ),
+                  );
+                  lesson.stopCapturing();
+                  await Promise.allSettled(
+                    variants.map((card) => enrichPhrase(document, card)),
+                  );
+                }}
+                onImport={(value) => {
+                  if (!doc) throw Error("Lesson is still opening.");
+                  lesson.stopCapturing();
+                  const imported = importLesson(doc, value);
+                  lesson.stopCapturing();
+                  setSelectedItems(new Set(imported.ids));
+                  setSelected(imported.ids[0] || null);
+                  setSelectedRow(null);
+                  const first = doc
+                    .getMap<Y.Map<unknown>>("cards")
+                    .get(imported.ids[0]);
+                  if (first)
+                    centerView(
+                      Number(first.get("x")) + 200,
+                      Number(first.get("y")) + 150,
+                    );
+                  return imported.teacherNotes;
+                }}
+                onExport={() => (doc ? exportLesson(doc, session.title) : null)}
+              />
               {(active || selectedItems.size > 1) && (
                 <div
                   className="tool-group selection-tools"
@@ -3323,7 +3647,7 @@ export default function App() {
                     }
                   />
                   <DrawingLayer
-                    strokes={[...strokes, ...(pending ? [pending] : [])]}
+                    strokes={strokes}
                     connectors={connectors.flatMap((connector) => {
                       const a = cards.find(
                           (card) => card.id === connector.from,
@@ -3354,30 +3678,12 @@ export default function App() {
                       setSelectedStroke(null);
                     }}
                   />
-                  <svg
-                    className="remote-ink-layer"
-                    width={BOARD_WIDTH}
-                    height={BOARD_HEIGHT}
-                  >
-                    {peers
-                      .filter(
-                        (peer) =>
-                          peer.ink &&
-                          now - peer.ink.at < 6000 &&
-                          !strokes.some(
-                            (stroke) => stroke.id === peer.ink!.stroke.id,
-                          ),
-                      )
-                      .map((peer) => (
-                        <path
-                          key={peer.id}
-                          data-testid="live-ink"
-                          d={inkOutline(peer.ink!.stroke)}
-                          fill={peer.ink!.stroke.color}
-                          opacity={peer.ink!.stroke.opacity ?? 1}
-                        />
-                      ))}
-                  </svg>
+                  <LiveInk key={`ink:${session.id}`} ref={liveInk} />
+                  <RemoteInk
+                    key={`remote:${session.id}`}
+                    sessionId={session.id}
+                    committed={strokes}
+                  />
                   <svg
                     className="laser-layer"
                     width={BOARD_WIDTH}
@@ -3506,7 +3812,10 @@ export default function App() {
                           if (node) cardElements.current.set(card.id, node);
                           else cardElements.current.delete(card.id);
                         }}
-                        style={cardStyle(card)}
+                        style={{
+                          ...cardStyle(card),
+                          opacity: teacher && card.concealed ? 0.5 : undefined,
+                        }}
                         onPointerDown={(event) => startDrag(event, card)}
                         onClick={(event) => {
                           if (!gestureMoved.current)
@@ -3585,7 +3894,10 @@ export default function App() {
                           if (node) cardElements.current.set(card.id, node);
                           else cardElements.current.delete(card.id);
                         }}
-                        style={cardStyle(card)}
+                        style={{
+                          ...cardStyle(card),
+                          opacity: teacher && card.concealed ? 0.5 : undefined,
+                        }}
                         onPointerDown={(event) => startDrag(event, card)}
                         onClick={(event) => {
                           if (!gestureMoved.current)
@@ -3671,7 +3983,10 @@ export default function App() {
                           if (node) cardElements.current.set(card.id, node);
                           else cardElements.current.delete(card.id);
                         }}
-                        style={cardStyle(card)}
+                        style={{
+                          ...cardStyle(card),
+                          opacity: teacher && card.concealed ? 0.5 : undefined,
+                        }}
                         onClick={(event) => {
                           if (!gestureMoved.current)
                             selectCard(card.id, null, event.shiftKey, true);
@@ -3704,7 +4019,10 @@ export default function App() {
                           if (node) cardElements.current.set(card.id, node);
                           else cardElements.current.delete(card.id);
                         }}
-                        style={cardStyle(card)}
+                        style={{
+                          ...cardStyle(card),
+                          opacity: teacher && card.concealed ? 0.5 : undefined,
+                        }}
                         onClick={(event) => {
                           if (!gestureMoved.current)
                             selectCard(card.id, null, event.shiftKey, true);
