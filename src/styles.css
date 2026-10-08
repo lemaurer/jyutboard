@@ -3521,4 +3521,9 @@ summary > svg,
 .handwrite-error { color:#87524c; margin:6px 0; font-size:12px; }
 .canvas.tool-handwrite { cursor:crosshair; }
 .canvas.tool-handwrite .board-card, .canvas.tool-handwrite .board-card *, .canvas.tool-handwrite .drawing-layer { pointer-events:none; }
-.dialogue-turn .inline-language[data-inline-activation="click"] { cursor:text; }
+/* Editable dialogue text wins over the general card grab cursor, including
+   vocabulary spans. Active drag/resize/laser cursors still take precedence. */
+.canvas .conversation-card .dialogue-turn .inline-language[data-inline-activation="click"],
+.canvas .conversation-card .dialogue-turn .inline-language[data-inline-activation="click"] * {
+  cursor: text;
+}
