@@ -39,6 +39,7 @@ export class TabletGestures {
     private manipulate: (event: PointerEvent) => boolean = () => false,
     private clock: GestureClock = browserClock,
     private boundary?: (zoom: number) => Boundary,
+    private zoomSpeed: () => number = () => 1,
   ) {}
   get multipleContacts() {
     return this.contacts.size > 1;
@@ -86,7 +87,9 @@ export class TabletGestures {
     this.navigating ||=
       this.contacts.size > 1 ||
       (!this.manipulate(event) &&
-        ["draw", "handwrite", "highlight", "arrow", "pan"].includes(this.tool()));
+        ["draw", "handwrite", "highlight", "arrow", "pan"].includes(
+          this.tool(),
+        ));
     this.previous = this.center();
     if (this.navigating) this.viewport.setPointerCapture(event.pointerId);
     return this.navigating;
@@ -129,7 +132,7 @@ export class TabletGestures {
           2.5,
           view.zoom *
             (previous.distance > 0 && next.distance > 0
-              ? next.distance / previous.distance
+              ? Math.pow(next.distance / previous.distance, this.zoomSpeed())
               : 1),
         ),
       );

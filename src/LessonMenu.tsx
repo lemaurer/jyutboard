@@ -130,6 +130,15 @@ export function LessonTools({
       ]);
   }
   const note = notes.find((note) => note.objectId === objectId)?.text || "";
+  const alternatives = [
+    ...new Set(
+      replacements
+        .split("\n")
+        .map((value) => value.trim())
+        .filter((value) => value && value !== slot),
+    ),
+  ].slice(0, 12);
+  const slotIndex = slot ? (active?.chinese || "").indexOf(slot) : -1;
   return (
     <div className="lesson-tool-control">
       <button
@@ -189,7 +198,8 @@ export function LessonTools({
               title="Sentence variations"
               onClick={() => {
                 placePanel();
-                setSlot(active.words[0]?.chinese || "");
+                setSlot(active.words.at(-1)?.chinese || "");
+                setReplacements("");
                 setPanel("variants");
               }}
             >
@@ -342,11 +352,42 @@ export function LessonTools({
             ) : (
               <>
                 <small>
-                  Replace one slot; keep the rest of the sentence. Review the
-                  resulting meanings.
+                  Make a few versions of the same sentence by changing one part.
+                  For example: 我想飲水 → 我想飲奶茶 / 我想飲咖啡.
                 </small>
+                <p className="variation-source">
+                  {slotIndex >= 0 ? (
+                    <>
+                      {active?.chinese.slice(0, slotIndex)}
+                      <mark>{slot}</mark>
+                      {active?.chinese.slice(slotIndex + slot.length)}
+                    </>
+                  ) : (
+                    active?.chinese
+                  )}
+                </p>
+                <div
+                  className="variation-words"
+                  aria-label="Choose the part to change"
+                >
+                  {[
+                    ...new Set(
+                      active?.words
+                        .map((word) => word.chinese)
+                        .filter(Boolean) || [],
+                    ),
+                  ].map((word) => (
+                    <button
+                      key={word}
+                      aria-pressed={slot === word}
+                      onClick={() => setSlot(word)}
+                    >
+                      {word}
+                    </button>
+                  ))}
+                </div>
                 <label>
-                  Original word or phrase
+                  1. Choose the part to change
                   <input
                     aria-label="Variation slot"
                     value={slot}
@@ -354,16 +395,41 @@ export function LessonTools({
                   />
                 </label>
                 <label>
-                  Substitutions, one per line
+                  2. Write Cantonese alternatives, one per line
                   <textarea
                     aria-label="Variation substitutions"
-                    placeholder="奶茶\n咖啡\n水"
+                    placeholder={
+                      slot === "飲水" ? "飲奶茶\n飲咖啡" : "奶茶\n咖啡"
+                    }
                     value={replacements}
                     onChange={(event) => setReplacements(event.target.value)}
                   />
                 </label>
+                {slotIndex >= 0 && alternatives.length > 0 && (
+                  <div
+                    className="variation-preview"
+                    aria-label="Sentence variation preview"
+                  >
+                    <small>
+                      New cards · Jyutping and English are filled in
+                      automatically
+                    </small>
+                    {alternatives.map((value) => (
+                      <p key={value}>
+                        {active?.chinese.slice(0, slotIndex)}
+                        <mark>{value}</mark>
+                        {active?.chinese.slice(slotIndex + slot.length)}
+                      </p>
+                    ))}
+                  </div>
+                )}
                 <button
-                  disabled={busy || active?.kind !== "phrase"}
+                  disabled={
+                    busy ||
+                    active?.kind !== "phrase" ||
+                    slotIndex < 0 ||
+                    !alternatives.length
+                  }
                   onClick={async () => {
                     setBusy(true);
                     try {

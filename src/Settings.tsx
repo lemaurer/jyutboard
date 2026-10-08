@@ -8,6 +8,11 @@ export function Settings({
   online,
   setOnline,
   vocabularyMessage,
+  panSpeed,
+  zoomSpeed,
+  setPanSpeed,
+  setZoomSpeed,
+  resetNavigation,
 }: {
   close: () => void;
   live?: boolean;
@@ -15,6 +20,11 @@ export function Settings({
   online: boolean;
   setOnline: (value: boolean) => void;
   vocabularyMessage: string;
+  panSpeed: number;
+  zoomSpeed: number;
+  setPanSpeed: (value: number) => void;
+  setZoomSpeed: (value: number) => void;
+  resetNavigation: () => void;
 }) {
   const [url, setUrl] = useState(
     "https://jyutdeck-live-jul08f.vercel.app/api/v1/requests",
@@ -26,7 +36,7 @@ export function Settings({
   const [busy, setBusy] = useState(false);
   useEffect(() => {
     window.desktop
-      ?.getSettings()
+      ?.getSettings?.()
       .then((s) => {
         setUrl(s.queueUrl);
         setHasToken(s.hasQueueToken);
@@ -70,6 +80,41 @@ export function Settings({
           </button>
         </div>
         <UpdateControls live={live} notify={notify} />
+        <hr />
+        <fieldset className="navigation-settings">
+          <legend>Canvas movement</legend>
+          <label>
+            Pan speed <output>{panSpeed.toFixed(2).replace(/0$/, "")}×</output>
+            <input
+              aria-label="Pan speed"
+              type="range"
+              min="0.5"
+              max="3"
+              step="0.25"
+              value={panSpeed}
+              onChange={(event) => setPanSpeed(Number(event.target.value))}
+            />
+          </label>
+          <label>
+            Zoom speed{" "}
+            <output>{zoomSpeed.toFixed(2).replace(/0$/, "")}×</output>
+            <input
+              aria-label="Zoom speed"
+              type="range"
+              min="0.5"
+              max="3"
+              step="0.25"
+              value={zoomSpeed}
+              onChange={(event) => setZoomSpeed(Number(event.target.value))}
+            />
+          </label>
+          <small>
+            Pan speed adjusts trackpad and mouse-wheel scrolling. Direct
+            dragging stays under your finger or pointer. Changes are saved
+            immediately on this device.
+          </small>
+          <button onClick={resetNavigation}>Reset movement speeds</button>
+        </fieldset>
         <hr />
         <p>
           Preferences belong to this device. Credentials never enter the shared

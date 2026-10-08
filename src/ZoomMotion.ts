@@ -16,6 +16,7 @@ export class ZoomMotion {
     private write: (view: View, inFrame?: boolean) => void,
     private settled: () => void,
     private clock: GestureClock = browserClock,
+    private speed: () => number = () => 1,
   ) {}
   get motionActive() {
     return this.frame !== 0;
@@ -29,17 +30,18 @@ export class ZoomMotion {
   wheel(delta: number, x: number, y: number) {
     const now = this.clock.now(),
       elapsed = this.last ? now - this.last : 16;
+    const distance = -delta * 0.008 * this.speed();
     this.clock.cancel(this.frame);
     if (elapsed > 100) this.velocity = 0;
     // Native momentum events already taper, so the additional tail also tapers.
     this.velocity = Math.max(
       -0.0009,
-      Math.min(0.0009, (-delta * 0.008) / Math.max(8, elapsed)),
+      Math.min(0.0009, distance / Math.max(8, elapsed)),
     );
     this.last = now;
     this.previous = now + 40;
     this.anchor = { x, y };
-    this.apply(-delta * 0.008, false);
+    this.apply(distance, false);
     this.frame = this.clock.frame(this.tick);
   }
   private apply(logDelta: number, inFrame: boolean) {

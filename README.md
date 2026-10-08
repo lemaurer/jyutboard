@@ -2,6 +2,8 @@
 
 The canvas toolbar gives direct access to **Tidy spacing**, private teaching notes, hide/reveal, reveal-next and sentence variations when relevant. Tidy spacing preserves existing rows and topic groups, gently slides overlapping elements apart, and leaves the camera in place. Selected-card conversion and lesson import/export stay in the compact **… Lesson tools** menu. AI assistants can generate complete canvases through the versioned JSON schema and optional MCP server. See [lesson API and teaching tools](docs/lesson-api.md) for setup, schemas, privacy behavior and examples.
 
+**Settings → Canvas movement** offers device-local pan and zoom speed sliders (0.5×–3×), saved immediately, plus a reset button. Desktop zoom defaults to 1.5×; iPad pinch defaults to 1×. Pan speed adjusts wheel/trackpad scrolling, while direct touch and object dragging remain under the pointer. Zoom uses a single anchored 2D transform per frame, avoiding an oversized GPU canvas texture; grid dots keep a consistent visible radius at fractional zooms.
+
 A live teaching canvas for learning Cantonese together. Natasha writes naturally in Chinese; Leif sees Jyutping first. Both views share movable phrase cards, dense phrase tables, notes, drawings, pronunciation recordings, and a session tray.
 
 **[Download JyutBoard](https://jyutboard.vercel.app/download.html)** · [Mac · Apple silicon](https://github.com/lemaurer/jyutboard/releases/latest/download/JyutBoard-Mac-Apple-Silicon.dmg) · [Mac · Intel](https://github.com/lemaurer/jyutboard/releases/latest/download/JyutBoard-Mac-Intel.dmg) · [Windows installer](https://github.com/lemaurer/jyutboard/releases/latest/download/JyutBoard-Setup.exe)

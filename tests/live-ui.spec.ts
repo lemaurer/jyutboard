@@ -1113,6 +1113,10 @@ test("touchpad pinch paints scale and position together and holds its anchor thr
   browser,
 }) => {
   const page = await blankPage(browser, false);
+  // Test reciprocal gestures at baseline sensitivity without hitting the zoom
+  // cap; default desktop sensitivity is now deliberately faster.
+  await page.evaluate(() => localStorage.setItem("jyutboard:zoomSpeed", "1"));
+  await page.reload();
   await page.getByLabel("Cantonese phrase").fill("飲水");
   await page.getByRole("button", { name: "Add phrase", exact: true }).click();
   const result = await page
@@ -1573,10 +1577,13 @@ test("wheel and zoom over phrase meanings and speech text stay with the canvas u
   const page = await blankPage(browser, false);
   await page.getByLabel("Cantonese phrase").fill("飲水");
   await page.getByRole("button", { name: "Add phrase", exact: true }).click();
-  const initial = (await page.getByTestId("phrase-card").locator("h2").boundingBox())!;
-  await page.mouse.move(initial.x+10,initial.y+10);
+  const initial = (await page
+    .getByTestId("phrase-card")
+    .locator("h2")
+    .boundingBox())!;
+  await page.mouse.move(initial.x + 10, initial.y + 10);
   await page.mouse.down();
-  await page.mouse.move(initial.x-230,initial.y-90,{steps:6});
+  await page.mouse.move(initial.x - 230, initial.y - 90, { steps: 6 });
   await page.mouse.up();
   await page
     .getByRole("button", { name: "Add conversation", exact: true })

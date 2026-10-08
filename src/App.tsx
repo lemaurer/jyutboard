@@ -5,6 +5,7 @@ import { useLayoutMotion } from "./useLayoutMotion";
 import { LiveInk, RemoteInk, type LiveInkHandle } from "./LiveInk";
 import { phraseInput, inputLanguage } from "./phraseInput";
 import { ZoomMotion } from "./ZoomMotion";
+import { navigationSpeed } from "./navigationPreferences";
 import { canvasBoundary } from "./canvasBoundary";
 import { lassoHitsBox, lassoHitsStroke } from "./lasso";
 import { inkOutline } from "./ink";
@@ -212,6 +213,18 @@ export default function App() {
   const [online, setOnline] = useState(
     loadPreference("online", "true") === "true",
   );
+  const [panSpeed, setPanSpeed] = useState(() =>
+    navigationSpeed(loadPreference("panSpeed", "1")),
+  );
+  const defaultZoomSpeed = matchMedia("(pointer: coarse)").matches ? 1 : 1.5;
+  const [zoomSpeed, setZoomSpeed] = useState(() =>
+    navigationSpeed(
+      loadPreference("zoomSpeed", String(defaultZoomSpeed)),
+      defaultZoomSpeed,
+    ),
+  );
+  const navigationSpeedRef = useRef({ pan: panSpeed, zoom: zoomSpeed });
+  navigationSpeedRef.current = { pan: panSpeed, zoom: zoomSpeed };
   const [leftOpen, setLeftOpen] = useState(
     loadPreference(
       "leftOpen",
@@ -407,6 +420,9 @@ export default function App() {
       node = viewport.current,
       canvas = board.current;
     if (!view || !node || !canvas) return;
+    // Keep grid dots above the subpixel threshold while scaling out, avoiding
+    // sections of the background blinking in and out at fractional zooms.
+    canvas.style.setProperty("--grid-dot-radius", `${0.8 / view.zoom}px`);
     if (commit) {
       // Reconcile scroll geometry only after navigation pauses. During movement
       // the clipped viewport uses a compositor transform, avoiding per-frame layout.
@@ -422,15 +438,16 @@ export default function App() {
         x: node.scrollLeft - canvasMargin.current.x - view.x,
         y: node.scrollTop - canvasMargin.current.y - view.y,
       };
-      canvas.style.transform = `translate3d(${cameraRest.current.x}px, ${cameraRest.current.y}px, 0) scale(${view.zoom})`;
+      canvas.style.transform = `translate(${cameraRest.current.x}px, ${cameraRest.current.y}px) scale(${view.zoom})`;
       camera.current = null;
       setZoom(view.zoom);
     } else {
       cameraScroll.current = { x: node.scrollLeft, y: node.scrollTop };
       const dx = cameraScroll.current.x - canvasMargin.current.x - view.x;
       const dy = cameraScroll.current.y - canvasMargin.current.y - view.y;
-      canvas.style.willChange = "transform";
-      canvas.style.transform = `translate3d(${dx}px, ${dy}px, 0) scale(${view.zoom})`;
+      // A 5600×3600 board must not become one enormous GPU texture. Let the
+      // browser rasterize visible tiles instead of risking missing GPU tiles.
+      canvas.style.transform = `translate(${dx}px, ${dy}px) scale(${view.zoom})`;
       cameraTransient.current = true;
     }
     zoomRef.current = view.zoom;
@@ -526,6 +543,7 @@ export default function App() {
           scale,
           !tablet,
         ),
+      () => navigationSpeedRef.current.zoom,
     );
     const releasePen = (event: globalThis.PointerEvent) =>
       tabletGestures.current?.releasePen(event);
@@ -798,14 +816,22 @@ export default function App() {
     );
   }, [cards, role, selectedItems]);
   useEffect(() => {
-    const valid = new Set(
-      [...cards, ...strokes, ...connectors].map((item) => item.id),
-    );
+    const valid = new Set([
+      ...[...(doc?.getMap<Y.Map<unknown>>("cards").entries() || [])]
+        .filter(
+          ([, value]) =>
+            value instanceof Y.Map &&
+            (role === "teacher" || !value.get("concealed")),
+        )
+        .map(([id]) => id),
+      ...(doc?.getMap("strokes").keys() || []),
+      ...(doc?.getMap("connectors").keys() || []),
+    ]);
     setSelectedItems((previous) => {
       const next = new Set([...previous].filter((id) => valid.has(id)));
       return next.size === previous.size ? previous : next;
     });
-  }, [cards, strokes, connectors]);
+  }, [doc, role, cards, strokes, connectors]);
   useEffect(() => {
     if (selectedItems.size === 1) {
       const id = [...selectedItems][0];
@@ -816,7 +842,7 @@ export default function App() {
       setSelectedStroke(null);
       setSelectedRow(null);
     }
-  }, [selectedItems]);
+  }, [selectedItems, cards, strokes]);
   function notify(message: string) {
     setNotice(message);
     clearTimeout(toastTimer.current);
@@ -970,21 +996,28 @@ export default function App() {
     }
   }, [peers]);
   useEffect(() => {
-    if (selected && !cards.some((card) => card.id === selected)) {
+    const current = selected
+      ? doc?.getMap<Y.Map<unknown>>("cards").get(selected)
+      : null;
+    if (
+      selected &&
+      (!current || (role === "learner" && current.get("concealed")))
+    ) {
       setSelected(null);
       setSelectedRow(null);
     }
-    if (
-      selectedStroke &&
-      !strokes.some((stroke) => stroke.id === selectedStroke)
-    )
+    if (selectedStroke && !doc?.getMap("strokes").has(selectedStroke))
       setSelectedStroke(null);
-  }, [cards, strokes, selected, selectedStroke]);
+  }, [doc, role, cards, strokes, selected, selectedStroke]);
   useEffect(() => {
     const node = viewport.current;
     if (!node) return;
-    const motion = new ZoomMotion(readCamera, queueCamera, () =>
-      tabletGestures.current?.deferSettle(),
+    const motion = new ZoomMotion(
+      readCamera,
+      queueCamera,
+      () => tabletGestures.current?.deferSettle(),
+      undefined,
+      () => navigationSpeedRef.current.zoom,
     );
     zoomMotion.current = motion;
     const stopZoom = () => motion.stop();
@@ -1013,8 +1046,8 @@ export default function App() {
               ? node.clientHeight
               : 1;
         tabletGestures.current?.panWheel(
-          event.deltaX * unit,
-          event.deltaY * unit,
+          event.deltaX * unit * navigationSpeedRef.current.pan,
+          event.deltaY * unit * navigationSpeedRef.current.pan,
         );
         return;
       }
@@ -5247,6 +5280,22 @@ export default function App() {
       )}
       {settings && (
         <Settings
+          panSpeed={panSpeed}
+          zoomSpeed={zoomSpeed}
+          setPanSpeed={(value) => {
+            setPanSpeed(value);
+            preference("panSpeed", String(value));
+          }}
+          setZoomSpeed={(value) => {
+            setZoomSpeed(value);
+            preference("zoomSpeed", String(value));
+          }}
+          resetNavigation={() => {
+            setPanSpeed(1);
+            setZoomSpeed(defaultZoomSpeed);
+            preference("panSpeed", "1");
+            preference("zoomSpeed", String(defaultZoomSpeed));
+          }}
           vocabularyMessage={vocabularyMessage}
           live={peers.length > 0}
           close={() => setSettings(false)}

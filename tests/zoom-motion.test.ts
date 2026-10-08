@@ -1,9 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { ZoomMotion } from "../src/ZoomMotion";
+import { navigationSpeed } from "../src/navigationPreferences";
 import { inputLanguage, phraseInput } from "../src/phraseInput";
 import type { GestureClock, View } from "../src/TabletGestures";
-function fixture() {
+function fixture(speed = () => 1) {
   let time = 100,
     next = 0,
     settled = 0,
@@ -26,6 +27,7 @@ function fixture() {
     },
     () => settled++,
     clock,
+    speed,
   );
   return {
     motion,
@@ -41,6 +43,19 @@ function fixture() {
     },
   };
 }
+test("navigation speeds validate saved preferences and zoom changes immediately without moving its anchor", () => {
+  for (const value of ["broken", "", 0, Infinity, 20])
+    assert.equal(navigationSpeed(value, 1.5), 1.5);
+  assert.equal(navigationSpeed("2.5"), 2.5);
+  let speed = 0.5;
+  const value = fixture(() => speed);
+  value.motion.wheel(-10, 400, 300);
+  assert.ok(Math.abs(Math.log(value.read().zoom) - 0.04) < 1e-9);
+  speed = 3;
+  value.motion.wheel(-10, 400, 300);
+  assert.ok(Math.abs(Math.log(value.read().zoom) - 0.28) < 1e-9);
+  assert.ok(Math.abs((value.read().x + 400) / value.read().zoom - 1600) < 1e-8);
+});
 test("trackpad zoom gently coasts around the same anchor and new input stops it", () => {
   const value = fixture();
   value.motion.wheel(-6, 400, 300);

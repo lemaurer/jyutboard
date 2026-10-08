@@ -360,7 +360,7 @@ small {
   transform-origin: 0 0;
   position: relative;
   touch-action: none;
-  background-image: radial-gradient(#d7dfed 0.8px, transparent 0.8px);
+  background-image: radial-gradient(#d7dfed var(--grid-dot-radius, 0.8px), transparent var(--grid-dot-radius, 0.8px));
   background-size: 22px 22px;
 }
 .canvas.tool-draw,
@@ -3548,3 +3548,16 @@ summary > svg,
 .lesson-tool-panel textarea { min-height:120px; resize:vertical; }
 .lesson-tool-panel label { display:block; font-size:11px; margin:8px 0; }
 .board-card[data-remote-moving=true] { will-change:translate; }
+
+.navigation-settings { border:0; padding:0; margin:0; }
+.navigation-settings legend { font-size:14px; font-weight:600; margin-bottom:6px; }
+.navigation-settings label { display:flex; flex-wrap:wrap; gap:6px; }
+.navigation-settings output { margin-left:auto; color:#68758e; font-variant-numeric:tabular-nums; }
+.navigation-settings input[type=range] { width:100%; padding:0; accent-color:#526bd0; }
+.navigation-settings button { margin-top:10px; font-size:12px; }
+.variation-source, .variation-preview p { line-height:1.6; margin:8px 0; }
+.variation-source mark, .variation-preview mark { background:#e7edfc; color:#304886; border-radius:4px; padding:1px 3px; }
+.variation-words { display:flex; flex-wrap:wrap; gap:5px; margin-bottom:12px; }
+.variation-words button { padding:4px 8px; font-size:13px; border:1px solid #e3e8f2; border-radius:6px; }
+.variation-words button[aria-pressed=true] { background:#e7edfc; border-color:#a4b4de; }
+.variation-preview { margin:12px 0; border-top:1px solid #e3e8f2; padding-top:10px; }
