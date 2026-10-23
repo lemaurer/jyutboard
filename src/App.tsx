@@ -422,7 +422,8 @@ export default function App() {
     if (!view || !node || !canvas) return;
     // Keep grid dots above the subpixel threshold while scaling out, avoiding
     // sections of the background blinking in and out at fractional zooms.
-    canvas.style.setProperty("--grid-dot-radius", `${0.8 / view.zoom}px`);
+    if (!tablet)
+      canvas.style.setProperty("--grid-dot-radius", `${0.8 / view.zoom}px`);
     if (commit) {
       // Reconcile scroll geometry only after navigation pauses. During movement
       // the clipped viewport uses a compositor transform, avoiding per-frame layout.
@@ -438,16 +439,21 @@ export default function App() {
         x: node.scrollLeft - canvasMargin.current.x - view.x,
         y: node.scrollTop - canvasMargin.current.y - view.y,
       };
-      canvas.style.transform = `translate(${cameraRest.current.x}px, ${cameraRest.current.y}px) scale(${view.zoom})`;
+      canvas.style.transform = tablet
+        ? `translate3d(${cameraRest.current.x}px, ${cameraRest.current.y}px, 0) scale(${view.zoom})`
+        : `translate(${cameraRest.current.x}px, ${cameraRest.current.y}px) scale(${view.zoom})`;
       camera.current = null;
       setZoom(view.zoom);
     } else {
       cameraScroll.current = { x: node.scrollLeft, y: node.scrollTop };
       const dx = cameraScroll.current.x - canvasMargin.current.x - view.x;
       const dy = cameraScroll.current.y - canvasMargin.current.y - view.y;
-      // A 5600×3600 board must not become one enormous GPU texture. Let the
-      // browser rasterize visible tiles instead of risking missing GPU tiles.
-      canvas.style.transform = `translate(${dx}px, ${dy}px) scale(${view.zoom})`;
+      // Avoid oversized desktop GPU textures and missing raster tiles. Retain
+      // iPad's established accelerated path for touch navigation and momentum.
+      canvas.style.willChange = tablet ? "transform" : "";
+      canvas.style.transform = tablet
+        ? `translate3d(${dx}px, ${dy}px, 0) scale(${view.zoom})`
+        : `translate(${dx}px, ${dy}px) scale(${view.zoom})`;
       cameraTransient.current = true;
     }
     zoomRef.current = view.zoom;
