@@ -1398,9 +1398,11 @@ export default function App() {
           ? analyzed.words
           : analyzeLocal(analyzed.chinese).words,
         translation:
-          language === "chinese"
-            ? analyzeLocal(content).translation
-            : "translated",
+          language === "english"
+            ? "edited"
+            : language === "chinese"
+              ? analyzeLocal(content).translation
+              : "translated",
         x: clamp(location[0], 0, BOARD_WIDTH - 300),
         y: clamp(location[1], 0, BOARD_HEIGHT - 300),
       });

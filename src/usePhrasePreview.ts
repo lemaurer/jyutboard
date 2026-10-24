@@ -30,7 +30,15 @@ export function usePhrasePreview(
         ? { chinese: content, ...analyzeLocal(content) }
         : analyzeInputLocal(content, source);
     if (local || cache.current.has(key)) {
-      setValue({ text, language, analysis: local || cache.current.get(key) });
+      const analysis = local || cache.current.get(key)!;
+      setValue({
+        text,
+        language,
+        analysis:
+          source === "english"
+            ? { ...analysis, definition: content, translation: "edited" }
+            : analysis,
+      });
       return;
     }
     setValue({ text, language, pending: true });
