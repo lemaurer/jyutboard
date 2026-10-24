@@ -26,7 +26,7 @@ type Draft = {
   editing: boolean;
 };
 export type HandwriteHandle = {
-  active: () => boolean;
+  active: (pointer?: number) => boolean;
   begin: (point: [number, number], pointer: number, pressure?: number) => void;
   move: (point: [number, number], pointer: number, pressure?: number) => void;
   end: (pointer?: number, cancelled?: boolean) => void;
@@ -124,7 +124,9 @@ export const HandwriteLayer = forwardRef<
     }
   }, [enabled]);
   useImperativeHandle(handle, () => ({
-    active: () => !!active.current,
+    active: (pointer) =>
+      !!active.current &&
+      (pointer === undefined || active.current.pointer === pointer),
     begin(point, pointer, pressure = 0.5) {
       if (!enabled || active.current) return;
       let d = data.current
@@ -182,7 +184,8 @@ export const HandwriteLayer = forwardRef<
       const previous = a.stroke.points.at(-1)!;
       if (
         a.stroke.points.length < 2000 &&
-        Math.hypot(point[0] - previous[0], point[1] - previous[1]) > 0.5
+        Math.hypot(point[0] - previous[0], point[1] - previous[1]) * zoom() >
+          0.15
       ) {
         a.stroke.points.push(point);
         a.stroke.pressures!.push(pressure || 0.5);
@@ -195,13 +198,9 @@ export const HandwriteLayer = forwardRef<
       active.current = null;
       const d = data.current.find((d) => d.id === a.draft);
       if (!d) return;
-      if (cancelled) {
-        d.strokes = d.strokes.filter((s) => s !== a.stroke);
-        if (!d.strokes.length) {
-          remove(d.id);
-          return;
-        }
-      }
+      // Safari can cancel Pencil input when a palm or a second finger arrives.
+      // The ink already received remains valid; only explicit Cancel discards it.
+      if (cancelled) d.error = "";
       d.phase = "waiting";
       clearTimeout(timers.current.get(d.id));
       timers.current.set(

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Mic, Square } from "lucide-react";
 import { MAX_AUDIO } from "./model";
+import { lessonServiceError } from "./serviceErrors";
 import { recordingMime, settledRecording } from "./recording";
 type Phase = "idle" | "starting" | "recording" | "transcribing";
 export function PushToTalk({
@@ -63,7 +64,7 @@ export function PushToTalk({
         setSaved("");
       }
     } catch (e) {
-      if (mounted.current) notify(e instanceof Error ? e.message : String(e));
+      if (mounted.current) notify(lessonServiceError(e));
     } finally {
       if (mounted.current) update("idle");
     }

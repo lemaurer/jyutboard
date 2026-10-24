@@ -6,7 +6,14 @@ import {
 } from "./VocabularyPhrase";
 import { PushToTalk } from "./PushToTalk";
 import type { SourceLanguage, Card, TableRow } from "./model";
-import { PersonAvatar, PERSONAS, AVATARS } from "./PersonAvatar";
+import { PersonAvatar, PERSONAS, AVATARS, EMOTIONS } from "./PersonAvatar";
+import {
+  nextSpeaker,
+  conversationSpeakers,
+  speakerSide,
+  sentenceCount,
+  type Speaker,
+} from "./conversationTools";
 import {
   Plus,
   Star,
@@ -31,6 +38,7 @@ export function Conversation({
   notify,
   onAdd,
   onDelete,
+  onSplit,
   onSelect,
 }: {
   card: Card;
@@ -45,11 +53,18 @@ export function Conversation({
   onComplete: (row: TableRow, text: string, language?: SourceLanguage) => void;
   onSpeech: (row: TableRow, text: string, audio: string) => void;
   notify: (text: string) => void;
-  onAdd: () => void;
+  onAdd: (speaker: Speaker) => void;
+  onSplit: (row: TableRow) => void;
   onDelete: (row: TableRow) => void;
   onSelect: (row: TableRow) => void;
 }) {
   const [editing, setEditing] = useState<string | null>(null);
+  const [speakerOverride, setSpeakerOverride] = useState("");
+  const predicted = nextSpeaker(card.rows);
+  const speakers = [...conversationSpeakers(card.rows)];
+  for (const person of PERSONAS)
+    if (!speakers.some((s) => s.name === person.name)) speakers.push(person);
+  const chosen = speakers.find((s) => s.name === speakerOverride) || predicted;
   return (
     <div className="conversation-turns">
       {card.rows.map((row, index) => {
@@ -63,7 +78,7 @@ export function Conversation({
           <div
             key={row.id}
             style={{ opacity: teacher && row.concealed ? 0.5 : undefined }}
-            className={`dialogue-turn ${index % 2 ? "turn-right" : "turn-left"} ${selectedRow === row.id ? "turn-selected" : ""}`}
+            className={`dialogue-turn ${speakerSide(card.rows, row) === "right" ? "turn-right" : "turn-left"} ${index > 0 && card.rows[index - 1].persona.trim().toLowerCase() === row.persona.trim().toLowerCase() ? "same-speaker" : ""} ${selectedRow === row.id ? "turn-selected" : ""}`}
             onClick={(e) => {
               e.stopPropagation();
               onSelect(row);
@@ -72,7 +87,11 @@ export function Conversation({
             <div className="dialogue-person">
               <details className="avatar-picker">
                 <summary aria-label="Choose avatar">
-                  <PersonAvatar id={row.avatar} name={row.persona} />
+                  <PersonAvatar
+                    id={row.avatar}
+                    name={row.persona}
+                    emotion={row.emotion}
+                  />
                 </summary>
                 <div className="avatar-grid">
                   {AVATARS.map((avatar) => (
@@ -90,6 +109,28 @@ export function Conversation({
                       <PersonAvatar id={avatar.id} name={avatar.label} />
                     </button>
                   ))}
+                  <div
+                    className="avatar-emotions"
+                    role="group"
+                    aria-label="Avatar expression"
+                  >
+                    {EMOTIONS.map((emotion) => (
+                      <button
+                        key={emotion}
+                        type="button"
+                        aria-label={`Expression: ${emotion}`}
+                        aria-pressed={(row.emotion || "neutral") === emotion}
+                        title={emotion}
+                        onClick={() => onChange(row, { emotion })}
+                      >
+                        <PersonAvatar
+                          id={row.avatar}
+                          name={emotion}
+                          emotion={emotion}
+                        />
+                      </button>
+                    ))}
+                  </div>
                 </div>
               </details>
               <div className={custom ? "custom-person-name" : ""}>
@@ -254,6 +295,22 @@ export function Conversation({
                       <option value="practice">Practice</option>
                     </select>
                   </label>
+                  {sentenceCount(row) > 1 && (
+                    <button onClick={() => onSplit(row)}>
+                      Split into sentences
+                    </button>
+                  )}
+                  {row.splitSource && (
+                    <details className="split-original">
+                      <summary>Original text</summary>
+                      <p>
+                        {teacher
+                          ? row.splitSource.chinese
+                          : row.splitSource.jyutping}
+                      </p>
+                      <p>{row.splitSource.definition}</p>
+                    </details>
+                  )}
                   {row.receipt && (
                     <small className="receipt">{row.receipt}</small>
                   )}
@@ -267,10 +324,29 @@ export function Conversation({
           </div>
         );
       })}
-      <button className="add-turn" onClick={onAdd}>
-        <Plus size={15} />
-        Add turn
-      </button>
+      <div className="add-turn-controls">
+        <button
+          className="add-turn"
+          onClick={() => {
+            onAdd(chosen);
+            setSpeakerOverride("");
+          }}
+        >
+          <Plus size={15} /> Add turn
+        </button>
+        <select
+          aria-label="Next speaker"
+          value={speakerOverride}
+          onChange={(e) => setSpeakerOverride(e.target.value)}
+        >
+          <option value="">Auto · {predicted.name}</option>
+          {speakers.map((person) => (
+            <option key={person.name} value={person.name}>
+              {person.name}
+            </option>
+          ))}
+        </select>
+      </div>
     </div>
   );
 }

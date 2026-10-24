@@ -1,4 +1,5 @@
 import { ROOM_PATTERN, validateRelay } from "./model";
+import { lessonServiceError } from "./serviceErrors";
 export const WEB_APP_URL = "https://jyutboard.vercel.app/";
 const pairKey = "jyutboard:web-pair:v1";
 type Pair = { room: string; host: false; relay?: string };
@@ -55,7 +56,7 @@ export function installWebRuntime() {
     });
     const data = await response.json();
     if (!response.ok && response.status !== 207)
-      throw Error(data.error || "Lesson service unavailable. Retry shortly.");
+      throw Error(lessonServiceError(data.error || "Lesson service unavailable. Retry shortly.", response.status));
     return data;
   }
   const nativeOnly = async () => {

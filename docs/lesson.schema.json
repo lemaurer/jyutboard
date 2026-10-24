@@ -73,6 +73,29 @@
           "items": {
             "type": "object",
             "properties": {
+              "splitSource": {
+                "type": "object",
+                "properties": {
+                  "chinese": {
+                    "type": "string",
+                    "maxLength": 2000
+                  },
+                  "jyutping": {
+                    "type": "string",
+                    "maxLength": 4000
+                  },
+                  "definition": {
+                    "type": "string",
+                    "maxLength": 4000
+                  }
+                },
+                "required": [
+                  "chinese",
+                  "jyutping",
+                  "definition"
+                ],
+                "additionalProperties": false
+              },
               "concealed": {
                 "type": "boolean",
                 "default": false
@@ -209,6 +232,21 @@
                 "items": {
                   "type": "object",
                   "properties": {
+                    "emotion": {
+                      "type": "string",
+                      "enum": [
+                        "neutral",
+                        "happy",
+                        "sad",
+                        "surprised",
+                        "thinking",
+                        "angry"
+                      ],
+                      "default": "neutral"
+                    },
+                    "splitSource": {
+                      "$ref": "#/definitions/JyutBoardLesson/properties/objects/items/properties/splitSource"
+                    },
                     "concealed": {
                       "type": "boolean",
                       "default": false

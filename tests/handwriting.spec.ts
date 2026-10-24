@@ -221,16 +221,14 @@ test("iPad Pencil makes temporary ink and panning commits a text edit before its
       ["pointermove", 760],
       ["pointerup", 760],
     ] as const)
-      await page
-        .locator(".canvas")
-        .dispatchEvent(type, {
-          pointerId: 30,
-          pointerType: "touch",
-          clientX: x,
-          clientY: 300,
-          buttons: type === "pointerup" ? 0 : 1,
-          bubbles: true,
-        });
+      await page.locator(".canvas").dispatchEvent(type, {
+        pointerId: 30,
+        pointerType: "touch",
+        clientX: x,
+        clientY: 300,
+        buttons: type === "pointerup" ? 0 : 1,
+        bubbles: true,
+      });
     await expect
       .poll(() =>
         page.locator(".canvas").evaluate((el) => el.getBoundingClientRect().x),
@@ -284,5 +282,76 @@ test("continuing to write invalidates an older recognition reply and new Pen mar
     await expect(page.getByTestId("handwrite-preview")).toContainText("你好");
   } finally {
     await context.close();
+  }
+});
+
+test("Safari Pencil keeps tiny/final and interrupted strokes without native text selection", async () => {
+  const safari = await webkit.launch();
+  const { page, context } = await fixture(safari, true);
+  try {
+    await page
+      .getByRole("button", { name: "Handwrite → Card", exact: true })
+      .click();
+    const canvas = page.locator(".canvas");
+    await canvas.dispatchEvent("pointerdown", {
+      pointerId: 81,
+      pointerType: "pen",
+      button: 0,
+      buttons: 1,
+      clientX: 500,
+      clientY: 350,
+      pressure: 0.4,
+    });
+    await canvas.dispatchEvent("pointerup", {
+      pointerId: 81,
+      pointerType: "pen",
+      button: 0,
+      buttons: 0,
+      clientX: 550,
+      clientY: 350,
+      pressure: 0,
+    });
+    const first = await page
+      .getByTestId("handwrite-stroke")
+      .first()
+      .getAttribute("d");
+    await canvas.dispatchEvent("pointerdown", {
+      pointerId: 82,
+      pointerType: "pen",
+      button: 0,
+      buttons: 1,
+      clientX: 520,
+      clientY: 345,
+      pressure: 0.4,
+    });
+    await canvas.dispatchEvent("pointermove", {
+      pointerId: 82,
+      pointerType: "pen",
+      buttons: 1,
+      clientX: 520.3,
+      clientY: 345.3,
+      pressure: 0.5,
+    });
+    await canvas.dispatchEvent("pointercancel", {
+      pointerId: 82,
+      pointerType: "pen",
+      buttons: 0,
+      clientX: 520.3,
+      clientY: 345.3,
+    });
+    await expect(page.getByTestId("handwrite-stroke")).toHaveCount(2);
+    expect(first!.length).toBeGreaterThan(30);
+    expect(await page.evaluate(() => window.getSelection()?.toString())).toBe(
+      "",
+    );
+    await expect(page.getByTestId("handwrite-preview")).toContainText(
+      "我想飲水",
+    );
+    await page.getByLabel("Confirm handwriting card").click();
+    await expect(page.getByTestId("phrase-card")).toHaveCount(1);
+    await expect(page.getByTestId("handwrite-stroke")).toHaveCount(0);
+  } finally {
+    await context.close();
+    await safari.close();
   }
 });

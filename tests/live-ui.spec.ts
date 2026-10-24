@@ -907,7 +907,7 @@ test("conversation bubbles have saved queue receipts, display modes and a varied
   ).toBe("飲水");
   await conversation.getByLabel("Choose avatar").first().click();
   await expect(
-    conversation.locator(".avatar-grid").first().getByRole("button"),
+    conversation.locator(".avatar-grid").first().getByRole("button", {name: /^Use .* avatar$/}),
   ).toHaveCount(12);
   await conversation
     .getByRole("button", { name: "Use Amira avatar", exact: true })

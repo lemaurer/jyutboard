@@ -11,6 +11,7 @@ import {
   Download,
   Play,
 } from "lucide-react";
+import { sentenceCount } from "./conversationTools";
 import type { Card } from "./model";
 import type { TeacherNote } from "./lessonTools";
 
@@ -27,6 +28,7 @@ export function LessonTools({
   onReveal,
   onConvert,
   onVariants,
+  onSplit,
   onImport,
   onExport,
   notify,
@@ -42,6 +44,7 @@ export function LessonTools({
   onHide: (all: boolean, hidden: boolean) => void;
   onReveal: () => void;
   onConvert: (kind: "table" | "conversation") => Card | void;
+  onSplit: () => void;
   onVariants: (slot: string, replacements: string[]) => Promise<void>;
   onImport: (value: unknown) => TeacherNote[];
   onExport: () => unknown;
@@ -226,6 +229,29 @@ export function LessonTools({
               style={position}
               onPointerDown={(event) => event.stopPropagation()}
             >
+              {active?.kind === "phrase" && sentenceCount(active) > 1 && (
+                <button
+                  onClick={() =>
+                    action(() => {
+                      onSplit();
+                      details.current?.removeAttribute("open");
+                    })
+                  }
+                >
+                  Split into sentences
+                </button>
+              )}
+              {active?.splitSource && (
+                <details className="split-original">
+                  <summary>Original text</summary>
+                  <p>
+                    {teacher
+                      ? active.splitSource.chinese
+                      : active.splitSource.jyutping}
+                  </p>
+                  <p>{active.splitSource.definition}</p>
+                </details>
+              )}
               {hasSelection && (
                 <button onClick={() => action(() => onArrange(true))}>
                   <AlignHorizontalSpaceAround size={15} />

@@ -7,7 +7,16 @@ export type Word = {
   definition: string;
   state?: "new" | "learning" | "known" | "queued" | "unknown";
 };
+export type AvatarEmotion =
+  "neutral" | "happy" | "sad" | "surprised" | "thinking" | "angry";
+export type SplitSource = {
+  chinese: string;
+  jyutping: string;
+  definition: string;
+};
 export type TableRow = {
+  emotion?: AvatarEmotion;
+  splitSource?: SplitSource;
   concealed?: boolean;
   id: string;
   chinese: string;
@@ -38,6 +47,7 @@ export type CardMode =
 export type CardShape = "rounded" | "sheet" | "sticky" | "bubble";
 export type SourceLanguage = "chinese" | "jyutping" | "english";
 export type Card = {
+  splitSource?: SplitSource;
   concealed?: boolean;
   id: string;
   kind: "phrase" | "note" | "table" | "sticker" | "conversation";
@@ -162,6 +172,7 @@ export function createTableRow(fields: Partial<TableRow> = {}): TableRow {
     words: [],
     translation: "local",
     starred: false,
+    emotion: "neutral",
     persona: "Natasha",
     avatar: "natasha",
     answerChinese: "",
@@ -237,6 +248,27 @@ export function deleteTableRow(doc: Y.Doc, cardId: string, rowId: string) {
     rows?.toArray().findIndex((item) => item.get("id") === rowId) ?? -1;
   if (rows && index >= 0) rows.delete(index);
 }
+export function replaceTableRow(
+  doc: Y.Doc,
+  cardId: string,
+  rowId: string,
+  replacements: TableRow[],
+) {
+  const rows = tableRows(doc, cardId);
+  const index =
+    rows?.toArray().findIndex((row) => row.get("id") === rowId) ?? -1;
+  if (!rows || index < 0) return;
+  const maps = replacements.map((row) => {
+    const map = new Y.Map<unknown>();
+    for (const [key, value] of Object.entries(row))
+      if (value !== undefined) map.set(key, value);
+    return map;
+  });
+  doc.transact(() => {
+    rows.delete(index, 1);
+    rows.insert(index, maps);
+  });
+}
 export function getTableRow(
   doc: Y.Doc,
   cardId: string,
@@ -255,7 +287,16 @@ const wordSchema = z.object({
   definition: z.string().max(4000),
   state: z.enum(["new", "learning", "known", "queued", "unknown"]).optional(),
 });
+const splitSourceSchema = z.object({
+  chinese: z.string().max(2000),
+  jyutping: z.string().max(4000),
+  definition: z.string().max(4000),
+});
 export const tableRowSchema = z.object({
+  emotion: z
+    .enum(["neutral", "happy", "sad", "surprised", "thinking", "angry"])
+    .default("neutral"),
+  splitSource: splitSourceSchema.optional(),
   concealed: z.boolean().default(false),
   borderColor: z
     .string()
@@ -296,6 +337,7 @@ export const tableRowSchema = z.object({
   translation: z.string().max(200).default("local"),
 });
 export const cardSchema = z.object({
+  splitSource: splitSourceSchema.optional(),
   concealed: z.boolean().default(false),
   id: z.string().max(100),
   kind: z.enum(["phrase", "note", "table", "sticker", "conversation"]),
@@ -381,12 +423,10 @@ export function inviteFor(room: string, relay: string) {
 }
 export function parseInvite(value: string) {
   const url = new URL(value.trim());
-  if (
-    !(
-      (url.protocol === "jyutboard:" && url.hostname === "join") ||
-      (url.protocol === "https:" && url.pathname === "/")
-    )
-  )
+  if (!(
+    (url.protocol === "jyutboard:" && url.hostname === "join") ||
+    (url.protocol === "https:" && url.pathname === "/")
+  ))
     throw new Error("Paste a JyutBoard invitation.");
   const p = new URLSearchParams(url.hash.slice(1));
   const room = p.get("room") ?? "";

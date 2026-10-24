@@ -11,6 +11,7 @@ import {
   shell,
 } from "electron";
 import { join } from "node:path";
+import { pairedServiceBody, lessonServiceError } from "../src/serviceErrors";
 import { readFile, writeFile, rename } from "node:fs/promises";
 import { networkInterfaces } from "node:os";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
@@ -288,8 +289,7 @@ app.whenReady().then(async () => {
       throw Error(
         "Pair with Leif's room, or add the JyutDeck request token in Settings first.",
       );
-    if (pairedGuest || (action === "recognize" && secrets.pairRoom))
-      body = { ...(body as object), room: secrets.pairRoom };
+    body = pairedServiceBody(body, secrets.pairRoom);
     const endpoint = new URL(
       secrets.queueUrl ||
         "https://jyutdeck-live-jul08f.vercel.app/api/v1/requests",
@@ -315,7 +315,12 @@ app.whenReady().then(async () => {
     );
     const result = await response.json();
     if (!response.ok)
-      throw Error(result.error || "JyutDeck connection unavailable.");
+      throw Error(
+        lessonServiceError(
+          result.error || "JyutDeck connection unavailable.",
+          response.status,
+        ),
+      );
     return result;
   }
   ipcMain.handle("board:analyze", async (event, text, language) => {

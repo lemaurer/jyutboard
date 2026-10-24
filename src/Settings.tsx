@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { X } from "lucide-react";
+import { lessonServiceError } from "./serviceErrors";
 import { UpdateControls } from "./UpdateControls";
 export function Settings({
   close,
@@ -34,6 +35,8 @@ export function Settings({
   const [hasToken, setHasToken] = useState(false);
   const [hasGoogle, setHasGoogle] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [checking, setChecking] = useState(false);
+  const [serviceStatus, setServiceStatus] = useState("");
   useEffect(() => {
     window.desktop
       ?.getSettings?.()
@@ -140,6 +143,31 @@ export function Settings({
           not local guesses.
         </small>
         <hr />
+        <button
+          disabled={checking}
+          onClick={async () => {
+            setChecking(true);
+            try {
+              if (!window.desktop?.vocabulary)
+                throw Error("Update JyutBoard to check lesson services.");
+              await window.desktop.vocabulary();
+              setServiceStatus(
+                "Lesson authorization is working. Speech and translation use this same connection.",
+              );
+            } catch (error) {
+              setServiceStatus(lessonServiceError(error));
+            } finally {
+              setChecking(false);
+            }
+          }}
+        >
+          {checking ? "Checking…" : "Check lesson services"}
+        </button>
+        {serviceStatus && (
+          <p className="small-copy" role="status">
+            {serviceStatus}
+          </p>
+        )}
         {!window.desktop?.web && (
           <>
             <label>

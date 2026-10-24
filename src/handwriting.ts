@@ -1,7 +1,7 @@
 import type { Stroke } from "./model";
 import { pointsBox, type Box } from "./canvasGeometry";
 import { inkOutline } from "./ink";
-export const HANDWRITE_IDLE_MS = 1200;
+export const HANDWRITE_IDLE_MS = 1700;
 export function handwritingBox(strokes: Stroke[]): Box {
   return pointsBox(strokes.flatMap((stroke) => stroke.points));
 }

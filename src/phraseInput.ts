@@ -1,5 +1,6 @@
 import { analyzeInputLocal, analyzeLocal } from "./language";
 import type { SourceLanguage } from "./model";
+import { lessonServiceError } from "./serviceErrors";
 /** Both participants create canonical phrases, regardless of their display language. */
 export function inputLanguage(
   text: string,
@@ -7,18 +8,21 @@ export function inputLanguage(
 ): SourceLanguage {
   if (/\p{Script=Han}/u.test(text)) return "chinese";
   if (preferred === "english") return preferred;
-  return /(?:^|\s)[a-z]+[1-6](?:\s|[,.!?]|$)/i.test(text)
-    ? "jyutping"
-    : "english";
+  return /[a-z]+[1-6]/i.test(text) ? "jyutping" : "english";
 }
 export async function phraseInput(text: string, preferred?: SourceLanguage) {
   const content = text.trim(),
     language = inputLanguage(content, preferred);
   if (language === "chinese")
     return { chinese: content, ...analyzeLocal(content) };
-  const result =
-    analyzeInputLocal(content, language) ??
-    (await window.desktop?.analyze?.(content, language));
+  let result;
+  try {
+    result =
+      analyzeInputLocal(content, language) ??
+      (await window.desktop?.analyze?.(content, language));
+  } catch (error) {
+    throw Error(lessonServiceError(error));
+  }
   if (
     !result?.chinese?.trim() ||
     !result.jyutping?.trim() ||

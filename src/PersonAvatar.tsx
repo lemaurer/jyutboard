@@ -1,3 +1,12 @@
+import type { AvatarEmotion } from "./model";
+export const EMOTIONS: AvatarEmotion[] = [
+  "neutral",
+  "happy",
+  "sad",
+  "surprised",
+  "thinking",
+  "angry",
+];
 export const AVATARS = [
   {
     id: "natasha",
@@ -119,9 +128,11 @@ export const PERSONAS = [
 export function PersonAvatar({
   id = "natasha",
   name = "Person",
+  emotion = "neutral",
 }: {
   id?: string;
   name?: string;
+  emotion?: AvatarEmotion;
 }) {
   const a = AVATARS.find((a) => a.id === id) ?? AVATARS[0];
   const long = ["long", "bob", "wrap"].includes(a.style);
@@ -129,7 +140,7 @@ export function PersonAvatar({
     <svg
       viewBox="0 0 80 80"
       role="img"
-      aria-label={`${name} avatar`}
+      aria-label={`${name} avatar · ${emotion}`}
       className="person-avatar"
     >
       <circle cx="40" cy="40" r="38" fill={a.bg} />
@@ -177,14 +188,46 @@ export function PersonAvatar({
         />
       )}
       <path
-        d="M28 33Q32 31 36 33M45 33Q49 31 53 33"
+        d={
+          emotion === "angry"
+            ? "M28 31L36 34M45 34L53 31"
+            : emotion === "sad"
+              ? "M28 34L36 31M45 31L53 34"
+              : emotion === "thinking"
+                ? "M28 33Q32 31 36 33M45 31Q49 29 53 31"
+                : "M28 33Q32 31 36 33M45 33Q49 31 53 33"
+        }
         stroke={a.hair}
         strokeWidth="1.7"
         fill="none"
         strokeLinecap="round"
       />
-      <ellipse cx="33" cy="38" rx="1.6" ry="2.2" fill="#332d36" />
-      <ellipse cx="48" cy="38" rx="1.6" ry="2.2" fill="#332d36" />
+      {emotion === "happy" ? (
+        <path
+          d="M30 38Q33 34 36 38M45 38Q48 34 51 38"
+          fill="none"
+          stroke="#332d36"
+          strokeWidth="1.8"
+          strokeLinecap="round"
+        />
+      ) : (
+        <>
+          <ellipse
+            cx="33"
+            cy="38"
+            rx="1.6"
+            ry={emotion === "surprised" ? 3.2 : 2.2}
+            fill="#332d36"
+          />
+          <ellipse
+            cx="48"
+            cy="38"
+            rx="1.6"
+            ry={emotion === "surprised" ? 3.2 : 2.2}
+            fill="#332d36"
+          />
+        </>
+      )}
       <path
         d="M40 39L38 44H42"
         stroke="#b47b60"
@@ -202,7 +245,19 @@ export function PersonAvatar({
         />
       )}
       <path
-        d="M34 48Q40 52 47 48"
+        d={
+          emotion === "surprised"
+            ? "M37 49a3 4 0 1 0 6 0a3 4 0 1 0 -6 0"
+            : emotion === "happy"
+              ? "M34 47Q40 57 47 47Z"
+              : emotion === "sad"
+                ? "M35 51Q40 46 46 51"
+                : emotion === "angry"
+                  ? "M35 50L46 50"
+                  : emotion === "thinking"
+                    ? "M38 50L47 48"
+                    : "M34 48Q40 52 47 48"
+        }
         stroke={a.style === "beard" ? "#f3c7ad" : "#a65f60"}
         strokeWidth="1.6"
         fill="none"

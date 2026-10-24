@@ -5,6 +5,7 @@ let dictionary: Record<string, string[]> =
     .JYUTBOARD_DICTIONARY ?? {};
 export function initializeDictionary(value: Record<string, string[]>) {
   dictionary = value;
+  reverse = undefined;
 }
 const common: Record<string, [string, string]> = {
   飲水: ["jam2 seoi2", "drink water"],
@@ -106,7 +107,46 @@ export async function translatePublic(chinese: string): Promise<string> {
   return text;
 }
 
-/** A safe local fast path for exact dictionary phrases; ambiguous text uses JyutDeck. */
+let reverse: Map<string, string> | undefined;
+function reverseReadings() {
+  if (reverse) return reverse;
+  reverse = new Map();
+  for (const [chinese, entry] of [
+    ...Object.entries(common),
+    ...Object.keys(phrases).map(
+      (chinese) => [chinese, [jyutping(chinese), phrases[chinese]]] as const,
+    ),
+    ...Object.entries(dictionary),
+  ]) {
+    const key = entry[0]?.toLowerCase().replace(/[^a-z1-6]/g, "");
+    if (key && !reverse.has(key)) reverse.set(key, chinese);
+  }
+  return reverse;
+}
+/** Local readings are proposals for review: Jyutping has homophones. */
+export function composeJyutping(text: string) {
+  const clean = text.toLowerCase().replace(/\s+/g, "");
+  if (!/^(?:[a-z]+[1-6])+[,.!?。！？]*$/.test(clean)) return null;
+  const punctuation = clean.match(/[,.!?。！？]+$/)?.[0] || "";
+  const syllables = clean.match(/[a-z]+[1-6]/g)!;
+  if (syllables.length > 500) return null;
+  const readings = reverseReadings();
+  const best = new Map<number, string>([[syllables.length, ""]]);
+  for (let i = syllables.length - 1; i >= 0; i--) {
+    for (let end = Math.min(i + 12, syllables.length); end > i; end--) {
+      const word = readings.get(syllables.slice(i, end).join(""));
+      if (word && best.has(end)) {
+        best.set(i, word + best.get(end));
+        break;
+      }
+    }
+  }
+  const chinese = best.get(0);
+  return chinese
+    ? { chinese: chinese + punctuation, ...analyzeLocal(chinese + punctuation) }
+    : null;
+}
+/** Local dictionary phrases and compositional Jyutping, followed by service fallback. */
 export function analyzeInputLocal(
   text: string,
   language: "english" | "jyutping",
@@ -118,6 +158,10 @@ export function analyzeInputLocal(
       .replace(/\s+/g, " ")
       .trim();
   const input = normalize(text);
+  if (language === "jyutping") {
+    const composed = composeJyutping(text);
+    if (composed) return composed;
+  }
   for (const chinese of Object.keys(phrases)) {
     const result = analyzeLocal(chinese);
     if (

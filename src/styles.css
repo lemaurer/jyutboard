@@ -3561,3 +3561,22 @@ summary > svg,
 .variation-words button { padding:4px 8px; font-size:13px; border:1px solid #e3e8f2; border-radius:6px; }
 .variation-words button[aria-pressed=true] { background:#e7edfc; border-color:#a4b4de; }
 .variation-preview { margin:12px 0; border-top:1px solid #e3e8f2; padding-top:10px; }
+
+/* Keep the composer anchored; enrichment never changes the canvas layout. */
+.composer { position: relative; }
+.phrase-preview { position:absolute; bottom:calc(100% + 8px); left:12px; right:12px; display:flex; align-items:center; gap:12px; padding:9px 12px; border:1px solid #dbe2ee; border-radius:12px; background:#fffffff5; box-shadow:0 3px 16px #20305010; pointer-events:none; }
+.phrase-preview span { color:#405d99; }
+.phrase-preview small { color:#69758a; overflow:hidden; text-overflow:ellipsis; }
+.canvas.tool-handwrite, .canvas.tool-handwrite *, .canvas.tool-draw, .canvas.tool-draw *, .canvas.tool-highlight, .canvas.tool-highlight * { -webkit-user-select:none!important; user-select:none!important; -webkit-touch-callout:none; }
+.canvas.tool-handwrite .handwrite-preview input { -webkit-user-select:text!important; user-select:text!important; }
+
+.avatar-grid .avatar-emotions { grid-column:1 / -1; display:flex; gap:4px; border-top:1px solid #dbe2ee; padding-top:7px; margin-top:4px; }
+.avatar-emotions button { width:30px; height:30px; padding:0; }
+.avatar-emotions button[aria-pressed="true"] { outline:2px solid #8297c5; outline-offset:1px; border-radius:50%; }
+.add-turn-controls { display:flex; justify-content:center; align-items:center; gap:6px; }
+.add-turn-controls .add-turn { margin:0; }
+.add-turn-controls select { width:auto; max-width:145px; font-size:11px; border:0; background:transparent; color:#687891; padding:5px; }
+.dialogue-turn.same-speaker { margin-top:-6px; }
+.split-original p { white-space:pre-wrap; font-size:12px; max-width:280px; }
+
+.dialogue-person .avatar-emotions .person-avatar { height:100%; }

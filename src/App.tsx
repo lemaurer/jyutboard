@@ -3,6 +3,8 @@ import { InlineLanguage } from "./InlineLanguage";
 import { CardBorder } from "./CardBorder";
 import { useLayoutMotion } from "./useLayoutMotion";
 import { LiveInk, RemoteInk, type LiveInkHandle } from "./LiveInk";
+import { splitPhraseCard, splitConversationTurn } from "./conversationTools";
+import { usePhrasePreview } from "./usePhrasePreview";
 import { phraseInput, inputLanguage } from "./phraseInput";
 import { ZoomMotion } from "./ZoomMotion";
 import { navigationSpeed } from "./navigationPreferences";
@@ -307,6 +309,7 @@ export default function App() {
   } | null>(null);
   const [selectedStroke, setSelectedStroke] = useState<string | null>(null);
   const [input, setInput] = useState("");
+  const [composing, setComposing] = useState(false);
   const [settings, setSettings] = useState(false);
   const [sharing, setSharing] = useState(
     Boolean(window.desktop?.web && !sessions()[0]?.relay),
@@ -321,6 +324,7 @@ export default function App() {
   const [sticker, setSticker] = useState("noodles");
   const [sourceLanguage, setSourceLanguage] =
     useState<SourceLanguage>("chinese");
+  const phrasePreview = usePhrasePreview(input, sourceLanguage, !composing);
   const [followPeerId, setFollowPeerId] = useState<string | null>(null);
   const [autoFollowing, setAutoFollowing] = useState(false);
   const [dismissedPresenter, setDismissedPresenter] = useState<string | null>(
@@ -534,9 +538,9 @@ export default function App() {
           target.closest<SVGElement>("[data-stroke-id]")?.dataset.strokeId;
         return Boolean(
           id &&
-            (event.pointerType === "touch" ||
-              navigationRef.current.selectedItems.has(id)) &&
-            !["laser", "erase", "handwrite"].includes(toolRef.current),
+          (event.pointerType === "touch" ||
+            navigationRef.current.selectedItems.has(id)) &&
+          !["laser", "erase", "handwrite"].includes(toolRef.current),
         );
       },
       undefined,
@@ -1374,7 +1378,10 @@ export default function App() {
     creatingRef.current = true;
     setCreatingPhrase(true);
     try {
-      const analyzed = await phraseInput(content, language);
+      const analyzed =
+        text === input && phrasePreview.analysis && phrasePreview.text === input
+          ? phrasePreview.analysis
+          : await phraseInput(content, language);
       if (
         !analyzed?.chinese?.trim() ||
         !analyzed.jyutping?.trim() ||
@@ -2221,7 +2228,12 @@ export default function App() {
     }
   }
   useEffect(() => {
-    if (!window.desktop?.web || !paired?.room || paired.room !== session.id)
+    if (
+      !window.desktop ||
+      !paired?.room ||
+      paired.host ||
+      paired.room !== session.id
+    )
       return;
     let active = true;
     const refresh = () => {
@@ -3225,6 +3237,19 @@ export default function App() {
                 active={active}
                 sessionId={session.id}
                 notify={notify}
+                onSplit={() => {
+                  if (!doc || !active || active.kind !== "phrase") return;
+                  lesson.stopCapturing();
+                  try {
+                    const pieces = splitPhraseCard(doc, active, cards, cardBox);
+                    setSelectedItems(new Set(pieces.map((card) => card.id)));
+                    notify(
+                      `Created ${pieces.length} sentence cards. Undo restores the original.`,
+                    );
+                  } finally {
+                    lesson.stopCapturing();
+                  }
+                }}
                 onArrange={arrangeLesson}
                 onHide={hideLesson}
                 onReveal={() => {
@@ -3499,6 +3524,12 @@ export default function App() {
                   e.button === 0
                 ) {
                   tabletGestures.current?.down(e.nativeEvent);
+                  if (
+                    document.activeElement instanceof HTMLElement &&
+                    document.activeElement.closest(".canvas")
+                  )
+                    document.activeElement.blur();
+                  window.getSelection()?.removeAllRanges();
                   handwrite.current?.begin(point(e), e.pointerId, e.pressure);
                   e.currentTarget.setPointerCapture(e.pointerId);
                   e.preventDefault();
@@ -3601,7 +3632,7 @@ export default function App() {
                 }
               }}
               onPointerMoveCapture={(e) => {
-                if (handwrite.current?.active()) {
+                if (handwrite.current?.active(e.pointerId)) {
                   const samples = e.nativeEvent.getCoalescedEvents?.() ?? [];
                   for (const sample of samples.length
                     ? samples
@@ -3632,6 +3663,11 @@ export default function App() {
               }}
               onPointerUpCapture={(e) => {
                 if (handwrite.current?.active() && e.pointerType !== "touch") {
+                  handwrite.current.move(
+                    point(e),
+                    e.pointerId,
+                    e.pressure || 0.5,
+                  );
                   handwrite.current.end(e.pointerId);
                   tabletGestures.current?.releasePen(e.nativeEvent);
                   e.stopPropagation();
@@ -3963,16 +3999,30 @@ export default function App() {
                           }
                           notify={notify}
                           onSelect={(row) => selectCard(card.id, row.id)}
-                          onAdd={() =>
+                          onSplit={(row) => {
+                            if (!doc) return;
+                            lesson.stopCapturing();
+                            try {
+                              splitConversationTurn(doc, card, row);
+                            } catch (error) {
+                              notify(
+                                error instanceof Error
+                                  ? error.message
+                                  : String(error),
+                              );
+                            } finally {
+                              lesson.stopCapturing();
+                            }
+                          }}
+                          onAdd={(speaker) =>
                             doc &&
                             addTableRow(
                               doc,
                               card.id,
                               createTableRow({
-                                persona:
-                                  card.rows.length % 2 ? "Natasha" : "Leif",
-                                avatar:
-                                  card.rows.length % 2 ? "natasha" : "leif",
+                                persona: speaker.name,
+                                avatar: speaker.avatar,
+                                emotion: "neutral",
                               }),
                             )
                           }
@@ -4390,6 +4440,31 @@ export default function App() {
                 addPhrase();
               }}
             >
+              {input.trim() && !composing && (
+                <div
+                  className="phrase-preview"
+                  role="status"
+                  aria-label="Phrase preview"
+                >
+                  {phrasePreview.analysis ? (
+                    <>
+                      <span>
+                        {teacher
+                          ? phrasePreview.analysis.chinese
+                          : phrasePreview.analysis.jyutping}
+                      </span>
+                      <small>{phrasePreview.analysis.definition}</small>
+                      {sourceLanguage === "jyutping" && (
+                        <small title="Several Chinese words can share a reading. Check the meaning before adding.">
+                          Check meaning
+                        </small>
+                      )}
+                    </>
+                  ) : (
+                    <small>{phrasePreview.error || "Converting…"}</small>
+                  )}
+                </div>
+              )}
               <div className="composer-entry">
                 <select
                   className="composer-language"
@@ -4415,6 +4490,8 @@ export default function App() {
                   }
                   value={input}
                   maxLength={2000}
+                  onCompositionStart={() => setComposing(true)}
+                  onCompositionEnd={() => setComposing(false)}
                   onChange={(event) => {
                     setInput(event.target.value);
                     lesson.presence({ draft: event.target.value });
